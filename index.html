@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#1c2b22" />
+  <title>Waypoint — free trail finder</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <!-- Leaflet from CDN (open source map library) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Floating top bar -->
+  <header class="topbar">
+    <div class="brand"><span class="dot"></span> Waypoint</div>
+    <div class="wx" id="wx" hidden></div>
+  </header>
+
+  <!-- Locate button -->
+  <button id="locate" class="fab locate" title="Find my location" aria-label="Find my location">
+    <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm0-6a1 1 0 011 1v1.06A8 8 0 0118.94 11H20a1 1 0 110 2h-1.06A8 8 0 0113 18.94V20a1 1 0 11-2 0v-1.06A8 8 0 015.06 13H4a1 1 0 110-2h1.06A8 8 0 0111 5.06V4a1 1 0 011-1z" fill="currentColor"/></svg>
+  </button>
+
+  <!-- Bottom sheet: trail list / detail -->
+  <section class="sheet" id="sheet" data-state="peek">
+    <div class="sheet-handle" id="sheetHandle"></div>
+    <div class="sheet-head">
+      <button id="findBtn" class="primary">Find trails near here</button>
+      <div class="status" id="status">Tap the crosshair to locate yourself, then find trails.</div>
+    </div>
+    <div class="list" id="list"></div>
+
+    <!-- Trail detail (hidden until a trail is picked) -->
+    <div class="detail" id="detail" hidden>
+      <button class="back" id="backBtn">← All trails</button>
+      <h2 id="dName">Trail</h2>
+      <div class="stats" id="dStats"></div>
+      <div class="ontrail" id="onTrail" hidden></div>
+    </div>
+  </section>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-o9N1j7kGStf41Sr/ryWXFgQNz09Or33s0RwtVfBUtPY=" crossorigin=""></script>
+  <script src="./js/overpass.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>

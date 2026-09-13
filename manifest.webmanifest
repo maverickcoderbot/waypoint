@@ -1,0 +1,15 @@
+{
+  "name": "Waypoint — free trail finder",
+  "short_name": "Waypoint",
+  "description": "Find hiking trails near you and see where you are on the trail. Free, open data, no account.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#12181a",
+  "theme_color": "#1c2b22",
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
