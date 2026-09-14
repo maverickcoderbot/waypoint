@@ -28,6 +28,7 @@ const els = {
   sheet: $('sheet'), handle: $('sheetHandle'), detail: $('detail'), back: $('backBtn'),
   dName: $('dName'), dStats: $('dStats'), onTrail: $('onTrail'), wx: $('wx'),
   dBadge: $('dBadge'), dType: $('dType'), dDirections: $('dDirections'),
+  dBanner: $('dBanner'), dChips: $('dChips'),
   hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
   placeForm: $('placeForm'), placeInput: $('placeInput'),
@@ -244,6 +245,19 @@ function trailType(tags = {}) {
   return 'Hiking trail';
 }
 
+// Attribute chips derived from real OSM tags (no made-up data). Route type and
+// surface live in the stat row / subtitle, so they're not repeated here.
+function trailChips(t) {
+  const g = t.tags || {}, chips = [];
+  if (g.bicycle === 'yes' || g.bicycle === 'designated') chips.push('Bikes OK');
+  if (g.horse === 'yes' || g.horse === 'designated') chips.push('Horses OK');
+  if (g.dog === 'leashed') chips.push('Dogs on leash');
+  else if (g.dog === 'yes') chips.push('Dogs OK');
+  if (g.wheelchair === 'yes') chips.push('Wheelchair OK');
+  if (g.lit === 'yes') chips.push('Lit at night');
+  return chips;
+}
+
 function openTrail(t) {
   selected = t;
   els.list.hidden = true;
@@ -251,18 +265,31 @@ function openTrail(t) {
   setSheet('open');
   els.dName.textContent = t.name;
   const cls = { Easy: 'easy', Moderate: 'mod', Hard: 'hard' };
+  els.dBanner.className = `dbanner ${cls[t.difficulty]}`;
   els.dBadge.className = `badge ${cls[t.difficulty]}`;
   els.dBadge.textContent = t.difficulty;
   els.dType.textContent = trailType(t.tags);
   const mi = (t.km * 0.621).toFixed(1);
+  // Inline stat row (AllTrails-style). Elevation fills in async.
   els.dStats.innerHTML = `
-    <div class="stat"><div class="k">Length</div><div class="v">${t.km} km</div><div class="sub2">${mi} mi</div></div>
-    <div class="stat"><div class="k">Est. time</div><div class="v">${fmtTime(t.km)}</div></div>
-    <div class="stat"><div class="k">Route</div><div class="v">${routeType(t)}</div></div>
-    <div class="stat"><div class="k">Away</div><div class="v">${t.distToUserKm} km</div></div>`;
+    <div class="st"><div class="v">${mi} mi</div><div class="k">Length</div></div>
+    <div class="st"><div class="v" id="dGain">—</div><div class="k">Elev. gain</div></div>
+    <div class="st"><div class="v">${fmtTime(t.km)}</div><div class="k">Est. time</div></div>
+    <div class="st"><div class="v">${routeType(t)}</div><div class="k">Route</div></div>`;
+  const chips = trailChips(t);
+  els.dChips.innerHTML = chips.map((c) => `<span class="chip">${esc(c)}</span>`).join('');
+  els.dChips.hidden = chips.length === 0;
   // Directions to the trailhead (first mapped point).
   const head = t.points[0];
   els.dDirections.href = `https://www.google.com/maps/dir/?api=1&destination=${head[0]},${head[1]}&travelmode=driving`;
+
+  // Fetch elevation gain in the background; leave "—" if it fails.
+  const forTrail = t;
+  fetchElevationGain(t.points).then((m) => {
+    if (selected !== forTrail || m == null) return; // user moved on / no data
+    const gainEl = $('dGain');
+    if (gainEl) gainEl.textContent = `${Math.round((m * 3.281) / 10) * 10} ft`;
+  }).catch(() => {});
 
   // Highlight this trail on the map
   pickLayer.clearLayers();
