@@ -67,9 +67,13 @@ async function searchPlace(q) {
   setSheet('open');
   setStatus(`Finding “${esc(q)}”… <span class="spin"></span>`);
   map.invalidateSize();
+  // Bias geocoding toward where the user is looking (GPS, else map center) so
+  // ambiguous codes resolve to the nearby country, not a same-numbered place abroad.
+  const c = map.getCenter();
+  const bias = mePos ? { lat: mePos[0], lon: mePos[1] } : { lat: c.lat, lon: c.lng };
   let loc;
   try {
-    loc = await geocodePlace(q);
+    loc = await geocodePlace(q, bias);
   } catch {
     setStatus('Place lookup failed. Check your connection and try again.');
     return;
