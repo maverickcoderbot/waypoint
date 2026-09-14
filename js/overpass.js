@@ -9,11 +9,30 @@
  * even run it in Node to test (see the module.exports at the bottom).
  */
 
-// Public Overpass endpoints. If one is slow/down we fall through to the next.
+// Public Overpass endpoints. If one is slow/down/rate-limited we fall to the
+// next. Order matters: keep responsive mirrors first. Each attempt is wrapped
+// in a hard client-side timeout so a hung mirror can't freeze the UI.
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
+const OVERPASS_TIMEOUT_MS = 22000; // give up on a single mirror after 22s
+
+/* fetch() with a hard timeout via AbortController — prevents a stalled mirror
+ * from hanging the request (and the spinner) forever. */
+async function fetchWithTimeout(fetchImpl, url, opts = {}, ms = OVERPASS_TIMEOUT_MS) {
+  // Some fetch impls (older Node) may lack AbortController; degrade gracefully.
+  if (typeof AbortController === 'undefined') return fetchImpl(url, opts);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetchImpl(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /* Haversine distance in metres between two [lat, lon] points. */
 function haversine(a, b) {
@@ -101,25 +120,22 @@ function isNatureTrail(tags = {}) {
  * Returns [{ id, name, points:[[lat,lon]...], km, difficulty, tags }] sorted by distance-ish.
  */
 async function fetchTrailsNear(lat, lon, radius = 6000, fetchImpl = fetch) {
-  // Query is already selective (drops sidewalks/crossings and service tracks
-  // at the source); isNatureTrail() does the finer scenic-vs-industrial call.
+  // Keep the query lean (heavy multi-clause queries make public mirrors stall).
+  // We only drop obvious sidewalks/crossings at the source; isNatureTrail()
+  // does the finer scenic-vs-industrial call on the results.
   const a = `(around:${radius},${lat},${lon})`;
   const query = `
-    [out:json][timeout:50];
+    [out:json][timeout:25];
     (
-      way["highway"="path"]["name"]${a};
-      way["highway"="bridleway"]["name"]${a};
-      way["highway"="footway"]["name"]["footway"!~"sidewalk|crossing"]${a};
-      way["highway"="track"]["name"]["service"!~"."]${a};
+      way["highway"~"^(path|footway|track|bridleway)$"]["name"]["footway"!~"sidewalk|crossing"]${a};
       way["route"="hiking"]["name"]${a};
-      way["highway"]["name"]["sac_scale"]${a};
     );
     out geom;`;
 
   let data = null, lastErr = null;
   for (const ep of OVERPASS_ENDPOINTS) {
     try {
-      const res = await fetchImpl(ep, {
+      const res = await fetchWithTimeout(fetchImpl, ep, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'data=' + encodeURIComponent(query),
@@ -127,7 +143,10 @@ async function fetchTrailsNear(lat, lon, radius = 6000, fetchImpl = fetch) {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       data = await res.json();
       break;
-    } catch (e) { lastErr = e; }
+    } catch (e) {
+      // Timeouts surface as AbortError; treat like any other mirror failure.
+      lastErr = e;
+    }
   }
   if (!data) throw lastErr || new Error('Overpass unreachable');
 
@@ -162,6 +181,46 @@ async function fetchTrailsNear(lat, lon, radius = 6000, fetchImpl = fetch) {
   return trails;
 }
 
+/* Geocode a zip/postal code or place name -> { lat, lon, label }.
+ * Tries Nominatim first (best coverage: addresses, POIs, postcodes), then
+ * falls back to Open-Meteo geocoding (very reliable for cities/zips). Both are
+ * free and need no API key. Returns null if nothing matches anywhere. */
+async function geocodePlace(q, fetchImpl = fetch) {
+  const query = String(q || '').trim();
+  if (!query) return null;
+  const viaNominatim = await geocodeNominatim(query, fetchImpl).catch(() => null);
+  if (viaNominatim) return viaNominatim;
+  return geocodeOpenMeteo(query, fetchImpl).catch(() => null);
+}
+
+// OpenStreetMap Nominatim. Browsers send a Referer, which its policy accepts.
+async function geocodeNominatim(query, fetchImpl = fetch) {
+  const isZip = /^\d{4,6}(-\d{3,4})?$/.test(query);
+  const params = isZip
+    ? `postalcode=${encodeURIComponent(query)}`
+    : `q=${encodeURIComponent(query)}`;
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&${params}`;
+  const res = await fetchWithTimeout(fetchImpl, url, { headers: { Accept: 'application/json' } }, 12000);
+  if (!res.ok) throw new Error('nominatim HTTP ' + res.status);
+  const arr = await res.json();
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const r = arr[0];
+  const label = String(r.display_name || query).split(',').slice(0, 3).join(',').trim();
+  return { lat: +r.lat, lon: +r.lon, label };
+}
+
+// Open-Meteo geocoding — CORS-friendly, no key, resolves city names and zips.
+async function geocodeOpenMeteo(query, fetchImpl = fetch) {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=${encodeURIComponent(query)}`;
+  const res = await fetchWithTimeout(fetchImpl, url, {}, 12000);
+  if (!res.ok) throw new Error('open-meteo geo HTTP ' + res.status);
+  const j = await res.json();
+  const g = j.results && j.results[0];
+  if (!g) return null;
+  const label = [g.name, g.admin1, g.country_code].filter(Boolean).join(', ');
+  return { lat: g.latitude, lon: g.longitude, label };
+}
+
 /* Current + today's weather from Open-Meteo (free, no key). */
 async function fetchWeather(lat, lon, fetchImpl = fetch) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
@@ -186,5 +245,5 @@ function describeWeather(code) {
 
 // Let Node import these for testing; harmless in the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversine, pathLength, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban };
+  module.exports = { haversine, pathLength, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo };
 }

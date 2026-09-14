@@ -34,12 +34,16 @@
     <div class="hero-body">
       <h1>Find your next <em>trail</em></h1>
       <p class="tag">Real hiking trails around you, live GPS on the path, and free forever.</p>
-      <div class="hero-cta">
+      <form class="hero-cta" id="heroForm">
         <span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
-        <span class="lbl">Trails near me</span>
-        <button class="go" id="heroGo">Find trails</button>
+        <input class="fld" id="heroInput" type="search" enterkeyhint="search" autocomplete="postal-code"
+               placeholder="Zip code or place name" aria-label="Search by zip code or place name" />
+        <button class="go" type="submit">Find trails</button>
+      </form>
+      <div class="hero-alt">
+        <button id="heroLocate" type="button">Use my location</button>
+        <button id="heroBrowse" type="button">Browse the map</button>
       </div>
-      <div class="hero-alt"><button id="heroBrowse">Browse the map instead →</button></div>
     </div>
   </section>
 
@@ -61,8 +65,13 @@
   <section class="sheet" id="sheet" data-state="peek">
     <div class="sheet-handle" id="sheetHandle"></div>
     <div class="sheet-head">
-      <button id="findBtn" class="primary"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Find trails near here</button>
-      <div class="status" id="status">Tap the crosshair to locate yourself, then find trails.</div>
+      <form class="searchbar" id="placeForm">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input id="placeInput" type="search" enterkeyhint="search" placeholder="Search a zip code or place" aria-label="Search a zip code or place" />
+        <button type="submit">Go</button>
+      </form>
+      <button id="findBtn" class="primary"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm0-6a1 1 0 011 1v1.06A8 8 0 0118.94 11H20a1 1 0 110 2h-1.06A8 8 0 0113 18.94V20a1 1 0 11-2 0v-1.06A8 8 0 015.06 13H4a1 1 0 110-2h1.06A8 8 0 0111 5.06V4a1 1 0 011-1z" fill="currentColor"/></svg>Find trails near here</button>
+      <div class="status" id="status">Search a place above, or tap the crosshair to use your location.</div>
     </div>
     <div class="list" id="list"></div>
 

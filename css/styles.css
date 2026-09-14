@@ -74,12 +74,15 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 .hero-cta{display:flex;align-items:center;gap:10px;background:#fff;color:var(--ink);
   border-radius:999px;padding:8px 8px 8px 20px;box-shadow:var(--shadow-lg);max-width:440px}
 .hero-cta .ico{color:var(--muted);flex:none;display:grid;place-items:center}
-.hero-cta .lbl{flex:1;font-weight:600;font-size:16px;color:var(--muted)}
+.hero-cta .fld{flex:1;min-width:0;border:0;outline:none;background:none;font:inherit;
+  font-weight:600;font-size:16px;color:var(--ink)}
+.hero-cta .fld::placeholder{color:var(--muted);font-weight:500}
+.hero-cta .fld::-webkit-search-cancel-button{-webkit-appearance:none}
 .hero-cta .go{appearance:none;border:0;cursor:pointer;font:inherit;font-weight:700;
   font-size:15px;color:#0f2417;background:var(--lime);padding:13px 22px;border-radius:999px;
   white-space:nowrap;transition:transform .08s,background .15s;box-shadow:0 4px 14px rgba(183,227,54,.5)}
 .hero-cta .go:active{transform:scale(.96);background:var(--lime-deep)}
-.hero-alt{margin-top:18px}
+.hero-alt{margin-top:18px;display:flex;gap:22px}
 .hero-alt button{appearance:none;background:none;border:0;color:#fff;font:inherit;
   font-weight:600;font-size:15px;cursor:pointer;padding:6px 0;
   border-bottom:2px solid rgba(255,255,255,.6)}
@@ -119,6 +122,19 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
   margin:10px auto 2px;cursor:grab;flex:none}
 .sheet-head{padding:8px 18px 12px;flex:none}
 .status{color:var(--muted);font-size:13px;margin-top:10px;min-height:18px}
+
+/* Place search bar inside the sheet */
+.searchbar{display:flex;align-items:center;gap:8px;background:var(--surface-2);
+  border:1px solid var(--line);border-radius:999px;padding:6px 6px 6px 14px;margin-bottom:10px}
+.searchbar svg{color:var(--muted);flex:none}
+.searchbar input{flex:1;min-width:0;border:0;outline:none;background:none;font:inherit;
+  font-size:15px;color:var(--ink)}
+.searchbar input::placeholder{color:var(--muted)}
+.searchbar input::-webkit-search-cancel-button{-webkit-appearance:none}
+.searchbar button{appearance:none;border:0;cursor:pointer;font:inherit;font-weight:700;
+  font-size:14px;color:#fff;background:var(--green);padding:9px 16px;border-radius:999px;
+  transition:transform .08s,background .15s}
+.searchbar button:active{transform:scale(.96);background:var(--green-deep)}
 
 /* Primary find button styled as a search pill */
 .primary,.back{font:inherit;cursor:pointer}
