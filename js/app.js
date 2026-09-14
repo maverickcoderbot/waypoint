@@ -32,6 +32,7 @@ const els = {
   hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
   placeForm: $('placeForm'), placeInput: $('placeInput'), sheetHead: $('sheetHead'),
+  dDownload: $('dDownload'), savedBtn: $('savedBtn'),
 };
 
 let trails = [];      // last search results
@@ -236,7 +237,15 @@ async function findTrails(center) {
       ? `${trails.length} trails within ~${usedKm} km${where}${fromCache ? ' · cached' : ''}.`
       : `No scenic trails found within ${usedKm} km${where}. Try another area.`);
   } catch (e) {
-    setStatus('Trail search failed (servers busy). Try again in a moment.');
+    // Offline or all mirrors down: fall back to whatever the user downloaded.
+    const saved = await getSavedTrails();
+    if (saved.length) {
+      trails = saved;
+      renderList();
+      setStatus(`Search failed (offline?). Showing your ${saved.length} downloaded trail${saved.length > 1 ? 's' : ''}.`);
+    } else {
+      setStatus('Trail search failed (servers busy). Try again in a moment.');
+    }
   } finally {
     els.find.disabled = false;
   }
@@ -453,6 +462,8 @@ function openTrail(t) {
   // Directions to the trailhead (first mapped point).
   const head = t.points[0];
   els.dDirections.href = `https://www.google.com/maps/dir/?api=1&destination=${head[0]},${head[1]}&travelmode=driving`;
+  els.dDownload.disabled = false;
+  isSaved(t.id).then(setDownloadState);
 
   // Fetch elevation profile in the background (cached by trail id): fills the
   // gain stat and draws the elevation chart. Leaves "—" / no chart if it fails.
@@ -478,6 +489,84 @@ function openTrail(t) {
 }
 
 els.back.addEventListener('click', () => { selected = null; removeElevMarker(); renderList(); });
+
+// ---- Offline download ---------------------------------------------------
+// Web Mercator tile math.
+const lon2tileX = (lon, z) => Math.floor(((lon + 180) / 360) * 2 ** z);
+const lat2tileY = (lat, z) => {
+  const r = (lat * Math.PI) / 180;
+  return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z);
+};
+// Tile URLs covering a trail's bounds across zoom levels, capped so we never
+// bulk-download huge areas (respectful of OSM's tile policy).
+function tilesForBounds(bounds, zooms, cap) {
+  const urls = [];
+  for (const z of zooms) {
+    const x0 = lon2tileX(bounds.getWest(), z), x1 = lon2tileX(bounds.getEast(), z);
+    const y0 = lat2tileY(bounds.getNorth(), z), y1 = lat2tileY(bounds.getSouth(), z);
+    const zurls = [];
+    for (let x = x0 - 1; x <= x1 + 1; x++) {
+      for (let y = y0 - 1; y <= y1 + 1; y++) {
+        if (x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z) continue;
+        zurls.push(`https://tile.openstreetmap.org/${z}/${x}/${y}.png`);
+      }
+    }
+    if (urls.length + zurls.length > cap) break; // keep lower zooms complete, stop before the cap
+    urls.push(...zurls);
+  }
+  return urls;
+}
+
+function setDownloadState(saved) {
+  els.dDownload.dataset.saved = saved ? '1' : '0';
+  els.dDownload.classList.toggle('done', !!saved);
+  els.dDownload.querySelector('.lbl').textContent = saved ? 'Downloaded ✓  ·  Remove' : 'Download for offline';
+}
+
+async function downloadTrail(t) {
+  const lbl = els.dDownload.querySelector('.lbl');
+  els.dDownload.disabled = true;
+  lbl.textContent = 'Preparing…';
+  // Make sure elevation + photos are cached so the detail works fully offline.
+  const mid = t.points[Math.floor(t.points.length / 2)];
+  try { await cached(`elevp:${t.id}`, TTL.elev, () => fetchElevationProfile(t.points)); } catch {}
+  try { await cached(`photos:${mid[0].toFixed(3)},${mid[1].toFixed(3)}`, TTL.photo, () => fetchTrailPhotos(mid[0], mid[1], 6)); } catch {}
+  // Pre-cache the map tiles around the trail.
+  const urls = tilesForBounds(L.latLngBounds(t.points), [12, 13, 14, 15, 16], 500);
+  await cacheTiles(urls, (d, n) => { lbl.textContent = `Downloading map… ${Math.round((d / n) * 100)}%`; });
+  await saveTrail(t);
+  els.dDownload.disabled = false;
+  setDownloadState(true);
+  refreshSavedBtn();
+}
+
+els.dDownload.addEventListener('click', () => {
+  if (!selected) return;
+  if (els.dDownload.dataset.saved === '1') {
+    deleteSavedTrail(selected.id).then(() => { setDownloadState(false); refreshSavedBtn(); });
+  } else {
+    downloadTrail(selected);
+  }
+});
+
+// "Downloaded (N)" bar in the sheet head → shows saved trails (work offline).
+async function refreshSavedBtn() {
+  const saved = await getSavedTrails();
+  if (!saved.length) { els.savedBtn.hidden = true; return; }
+  els.savedBtn.hidden = false;
+  els.savedBtn.textContent = `⭳ Downloaded trails (${saved.length})`;
+}
+async function showSaved() {
+  const saved = await getSavedTrails();
+  if (!saved.length) { setStatus('No downloaded trails yet.'); return; }
+  trails = saved;
+  selected = null;
+  renderList();
+  setSheet('open');
+  setStatus(`${saved.length} downloaded trail${saved.length > 1 ? 's' : ''} · available offline.`);
+}
+els.savedBtn.addEventListener('click', showSaved);
+refreshSavedBtn();
 
 /* Snap the user's GPS to the nearest point on the selected trail, and work
  * out how far off-trail they are and how far along the route. */
