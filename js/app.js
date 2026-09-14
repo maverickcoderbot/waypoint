@@ -27,9 +27,11 @@ const els = {
   locate: $('locate'), find: $('findBtn'), status: $('status'), list: $('list'),
   sheet: $('sheet'), handle: $('sheetHandle'), detail: $('detail'), back: $('backBtn'),
   dName: $('dName'), dStats: $('dStats'), onTrail: $('onTrail'), wx: $('wx'),
+  dBadge: $('dBadge'), dType: $('dType'), dDirections: $('dDirections'),
+  dBanner: $('dBanner'), dChips: $('dChips'),
   hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
-  placeForm: $('placeForm'), placeInput: $('placeInput'),
+  placeForm: $('placeForm'), placeInput: $('placeInput'), sheetHead: $('sheetHead'),
 };
 
 let trails = [];      // last search results
@@ -73,7 +75,8 @@ async function searchPlace(q) {
   const bias = mePos ? { lat: mePos[0], lon: mePos[1] } : { lat: c.lat, lon: c.lng };
   let loc;
   try {
-    loc = await geocodePlace(q, bias);
+    const key = `geo:${q.toLowerCase()}|${bias.lat.toFixed(2)},${bias.lon.toFixed(2)}`;
+    loc = await cached(key, TTL.geo, () => geocodePlace(q, bias));
   } catch {
     setStatus('Place lookup failed. Check your connection and try again.');
     return;
@@ -89,10 +92,58 @@ async function searchPlace(q) {
   findTrails({ lat: loc.lat, lon: loc.lon, label: loc.label });
 }
 
-// ---- Bottom sheet expand/collapse --------------------------------------
-function setSheet(state) { els.sheet.dataset.state = state; }
-els.handle.addEventListener('click', () =>
-  setSheet(els.sheet.dataset.state === 'open' ? 'peek' : 'open'));
+// ---- Bottom sheet: draggable with snap points --------------------------
+// Three heights: collapsed (peek the map/trail), mid, full. Drag the handle to
+// resize; it snaps to the nearest. Tap toggles between mid and full.
+function snapPoints() {
+  const vh = window.innerHeight;
+  return [76, Math.round(vh * 0.48), Math.round(vh * 0.9)];
+}
+let sheetPx = null;
+function applySheet(px, animate) {
+  const s = snapPoints();
+  px = Math.max(s[0], Math.min(s[s.length - 1], px));
+  els.sheet.style.transition = animate ? 'height .3s cubic-bezier(.4,0,.2,1)' : 'none';
+  els.sheet.style.height = `${px}px`;
+  sheetPx = px;
+  els.locate.style.bottom = `${px + 16}px`; // keep the locate button above the sheet
+}
+function snapNearest(px) {
+  return snapPoints().reduce((a, b) => (Math.abs(b - px) < Math.abs(a - px) ? b : a));
+}
+// state: 'collapsed' | 'peek'(=mid) | 'open'(=full)
+function setSheet(state) {
+  const s = snapPoints();
+  applySheet(state === 'open' ? s[2] : state === 'collapsed' ? s[0] : s[1], true);
+  setTimeout(() => map.invalidateSize(), 320);
+}
+
+let drag = null;
+const ptY = (e) => (e.touches ? e.touches[0].clientY : e.clientY);
+els.handle.addEventListener('pointerdown', (e) => {
+  drag = { y: ptY(e), h: els.sheet.getBoundingClientRect().height, moved: false };
+  els.sheet.style.transition = 'none';
+});
+window.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dy = drag.y - ptY(e);
+  if (Math.abs(dy) > 4) drag.moved = true;
+  applySheet(drag.h + dy, false);
+  if (e.cancelable) e.preventDefault();
+}, { passive: false });
+window.addEventListener('pointerup', () => {
+  if (!drag) return;
+  const wasTap = !drag.moved;
+  const h = els.sheet.getBoundingClientRect().height;
+  drag = null;
+  if (wasTap) { const s = snapPoints(); applySheet(h >= s[2] - 20 ? s[1] : s[2], true); }
+  else applySheet(snapNearest(h), true);
+  setTimeout(() => map.invalidateSize(), 320);
+});
+// Re-snap on rotate/resize so the sheet stays proportional.
+window.addEventListener('resize', () => { if (sheetPx != null) applySheet(snapNearest(sheetPx), false); });
+// Start at mid once the DOM is ready.
+applySheet(snapPoints()[1], false);
 
 // ---- Geolocation --------------------------------------------------------
 els.locate.addEventListener('click', startLocating);
@@ -145,6 +196,22 @@ els.find.addEventListener('click', () => findTrails());
 // rural spot still turns up nothing.
 const SEARCH_RADII = [24000, 48000];
 
+/* Trail fetch with an IndexedDB cache (stale-while-revalidate): a place you've
+ * viewed before returns instantly and still refreshes in the background. */
+async function trailsCached(lat, lon, radius) {
+  const key = `trails:${lat.toFixed(3)},${lon.toFixed(3)}:${radius}`;
+  const hit = await cacheGet(key);
+  if (hit && hit.length) {
+    fetchTrailsNear(lat, lon, radius)
+      .then((fresh) => { if (fresh && fresh.length) cacheSet(key, fresh, TTL.trails); })
+      .catch(() => {});
+    return { trails: hit, cached: true };
+  }
+  const fresh = await fetchTrailsNear(lat, lon, radius);
+  if (fresh && fresh.length) cacheSet(key, fresh, TTL.trails);
+  return { trails: fresh, cached: false };
+}
+
 /* Find trails around an explicit {lat,lon,label}, else the user's GPS, else
  * the current map center. Expands the radius until it finds trails. */
 async function findTrails(center) {
@@ -154,19 +221,19 @@ async function findTrails(center) {
   els.find.disabled = true;
   setSheet('open');
   try {
-    let usedKm = 0;
+    let usedKm = 0, fromCache = false;
     for (let i = 0; i < SEARCH_RADII.length; i++) {
       const km = SEARCH_RADII[i] / 1000;
       setStatus(i === 0
         ? `Searching for trails${where}… <span class="spin"></span>`
         : `No trails within ${SEARCH_RADII[i - 1] / 1000} km — widening to ${km} km… <span class="spin"></span>`);
-      trails = await fetchTrailsNear(lat, lon, SEARCH_RADII[i]);
-      usedKm = km;
+      const r = await trailsCached(lat, lon, SEARCH_RADII[i]);
+      trails = r.trails; fromCache = r.cached; usedKm = km;
       if (trails.length) break;
     }
     renderList();
     setStatus(trails.length
-      ? `${trails.length} trails within ~${usedKm} km${where}.`
+      ? `${trails.length} trails within ~${usedKm} km${where}${fromCache ? ' · cached' : ''}.`
       : `No scenic trails found within ${usedKm} km${where}. Try another area.`);
   } catch (e) {
     setStatus('Trail search failed (servers busy). Try again in a moment.');
@@ -180,6 +247,7 @@ function renderList() {
   pickLayer.clearLayers();
   els.detail.hidden = true;
   els.list.hidden = false;
+  els.sheetHead.hidden = false; // restore search/find on the list view
 
   if (!trails.length) {
     els.list.innerHTML = '<div class="empty">No named trails found here.<br>Pan the map to a park and search again.</div>';
@@ -214,16 +282,96 @@ function renderList() {
 }
 
 // ---- Trail detail + "where am I on the trail" ---------------------------
+
+// Rough hiking time at ~4.5 km/h.
+function fmtTime(km) {
+  const mins = Math.round((km / 4.5) * 60);
+  if (mins < 60) return `${Math.max(5, mins)} min`;
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+// Loop if the ends nearly meet, else an out-and-back.
+function routeType(t) {
+  const p = t.points;
+  if (p.length < 2) return '—';
+  const gap = haversine(p[0], p[p.length - 1]);
+  return gap < Math.max(60, t.meters * 0.08) ? 'Loop' : 'Out & back';
+}
+// Human-friendly surface/type from OSM tags.
+const PAVED = ['asphalt', 'concrete', 'paved', 'paving_stones'];
+const NATURAL = ['ground', 'dirt', 'earth', 'grass', 'gravel', 'fine_gravel',
+  'compacted', 'unpaved', 'sand', 'rock', 'woodchips', 'mud'];
+function trailType(tags = {}) {
+  const s = (tags.surface || '').toLowerCase();
+  if (tags.highway === 'cycleway') return 'Paved greenway';
+  if (PAVED.includes(s)) return 'Paved path';
+  if (NATURAL.includes(s)) return 'Natural surface';
+  if (tags.highway === 'track') return 'Gravel track';
+  if (tags.highway === 'bridleway') return 'Bridle path';
+  return 'Hiking trail';
+}
+
+// Attribute chips derived from real OSM tags (no made-up data). Route type and
+// surface live in the stat row / subtitle, so they're not repeated here.
+function trailChips(t) {
+  const g = t.tags || {}, chips = [];
+  if (g.bicycle === 'yes' || g.bicycle === 'designated') chips.push('Bikes OK');
+  if (g.horse === 'yes' || g.horse === 'designated') chips.push('Horses OK');
+  if (g.dog === 'leashed') chips.push('Dogs on leash');
+  else if (g.dog === 'yes') chips.push('Dogs OK');
+  if (g.wheelchair === 'yes') chips.push('Wheelchair OK');
+  if (g.lit === 'yes') chips.push('Lit at night');
+  return chips;
+}
+
 function openTrail(t) {
   selected = t;
   els.list.hidden = true;
   els.detail.hidden = false;
-  setSheet('open');
+  els.sheetHead.hidden = true; // hide search/find while reading a trail (declutter)
+  setSheet('peek'); // mid height so the highlighted trail stays visible on the map
   els.dName.textContent = t.name;
+  const cls = { Easy: 'easy', Moderate: 'mod', Hard: 'hard' };
+  els.dBanner.className = `dbanner ${cls[t.difficulty]}`;
+  els.dBanner.style.backgroundImage = ''; // reset to gradient; photo fills in if found
+  // Real scenic photo (Wikimedia) around the trail's midpoint; gradient stays if none.
+  const mid = t.points[Math.floor(t.points.length / 2)];
+  const forPhoto = t;
+  cached(`photo:${mid[0].toFixed(3)},${mid[1].toFixed(3)}`, TTL.photo,
+    () => fetchTrailPhoto(mid[0], mid[1])).then((src) => {
+    if (selected !== forPhoto || !src) return;
+    const img = new Image();
+    img.onload = () => {
+      if (selected !== forPhoto) return;
+      els.dBanner.style.backgroundImage = `url("${src}")`;
+      els.dBanner.classList.add('has-photo');
+    };
+    img.src = src;
+  }).catch(() => {});
+  els.dBadge.className = `badge ${cls[t.difficulty]}`;
+  els.dBadge.textContent = t.difficulty;
+  els.dType.textContent = trailType(t.tags);
+  const mi = (t.km * 0.621).toFixed(1);
+  // Inline stat row (AllTrails-style). Elevation fills in async.
   els.dStats.innerHTML = `
-    <div class="stat"><div class="k">Distance</div><div class="v">${t.km} km</div></div>
-    <div class="stat"><div class="k">Difficulty</div><div class="v">${t.difficulty}</div></div>
-    <div class="stat"><div class="k">Miles</div><div class="v">${(t.km * 0.621).toFixed(1)}</div></div>`;
+    <div class="st"><div class="v">${mi} mi</div><div class="k">Length</div></div>
+    <div class="st"><div class="v" id="dGain">—</div><div class="k">Elev. gain</div></div>
+    <div class="st"><div class="v">${fmtTime(t.km)}</div><div class="k">Est. time</div></div>
+    <div class="st"><div class="v">${routeType(t)}</div><div class="k">Route</div></div>`;
+  const chips = trailChips(t);
+  els.dChips.innerHTML = chips.map((c) => `<span class="chip">${esc(c)}</span>`).join('');
+  els.dChips.hidden = chips.length === 0;
+  // Directions to the trailhead (first mapped point).
+  const head = t.points[0];
+  els.dDirections.href = `https://www.google.com/maps/dir/?api=1&destination=${head[0]},${head[1]}&travelmode=driving`;
+
+  // Fetch elevation gain in the background (cached by trail id); leave "—" if it fails.
+  const forTrail = t;
+  cached(`elev:${t.id}`, TTL.elev, () => fetchElevationGain(t.points)).then((m) => {
+    if (selected !== forTrail || m == null) return; // user moved on / no data
+    const gainEl = $('dGain');
+    if (gainEl) gainEl.textContent = `${Math.round((m * 3.281) / 10) * 10} ft`;
+  }).catch(() => {});
 
   // Highlight this trail on the map
   pickLayer.clearLayers();
@@ -233,7 +381,8 @@ function openTrail(t) {
     L.polyline(seg, { color: '#c02a3b', weight: 4 }).addTo(pickLayer);
     seg.forEach((p) => b.push(p));
   });
-  if (b.length) map.fitBounds(b, { padding: [50, 50] });
+  // Fit the trail into the map area that's visible above the sheet.
+  if (b.length) map.fitBounds(b, { paddingTopLeft: [30, 70], paddingBottomRight: [30, (sheetPx || 300) + 20] });
   updateOnTrail();
 }
 

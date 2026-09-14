@@ -118,8 +118,13 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
   height:var(--sheet-peek);transition:height .3s cubic-bezier(.4,0,.2,1);
   display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom)}
 .sheet[data-state="open"]{height:var(--sheet-open)}
-.sheet-handle{width:40px;height:5px;border-radius:3px;background:var(--line);
-  margin:10px auto 2px;cursor:grab;flex:none}
+/* Enlarged, obviously-draggable grab zone (the visible pill sits inside it). */
+.sheet-handle{position:relative;height:24px;flex:none;cursor:grab;touch-action:none;
+  display:grid;place-items:center;margin-top:2px}
+.sheet-handle::before{content:"";width:44px;height:5px;border-radius:3px;background:var(--line);
+  transition:background .15s,width .15s}
+.sheet-handle:active{cursor:grabbing}
+.sheet-handle:active::before{background:var(--muted);width:52px}
 .sheet-head{padding:8px 18px 12px;flex:none}
 .status{color:var(--muted);font-size:13px;margin-top:10px;min-height:18px}
 
@@ -170,12 +175,36 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 .badge.hard{color:#8f271e;background:#fbdcd8}
 
 .detail{padding:6px 20px 24px;overflow-y:auto}
-.detail h2{margin:8px 0 16px;font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--ink)}
 .back{background:none;border:none;color:var(--green);font-weight:700;padding:8px 0;font-size:14px}
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
-.stat{background:var(--surface-2);border:1px solid var(--line);border-radius:16px;padding:13px}
-.stat .k{color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
-.stat .v{font-size:20px;font-weight:800;margin-top:4px;color:var(--ink)}
+.dhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 2px}
+.dhead h2{margin:0;font-size:23px;font-weight:800;letter-spacing:-.02em;color:var(--ink);
+  line-height:1.15}
+.dhead .badge{flex:none;font-size:12.5px;padding:5px 12px}
+.dtype{color:var(--muted);font-size:13px;font-weight:600;margin:0 0 14px}
+/* Header banner: a real scenic photo when available, else a difficulty-tinted
+ * gradient with a mountain silhouette. */
+.dbanner{height:150px;border-radius:16px;margin:2px 0 14px;position:relative;overflow:hidden;
+  background-image:linear-gradient(150deg,#8fd0a6,#2b7a3f);background-size:cover;background-position:center}
+.dbanner.mod{background-image:linear-gradient(150deg,#f0cf8a,#c07f1f)}
+.dbanner.hard{background-image:linear-gradient(150deg,#f0a79f,#c0392f)}
+.dbanner::after{content:"";position:absolute;inset:0;
+  background:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40"><path d="M0 40 L18 16 L30 28 L48 6 L66 30 L82 14 L100 34 L100 40 Z" fill="white" fill-opacity="0.18"/></svg>') bottom/cover no-repeat}
+.dbanner.has-photo::after{background:linear-gradient(180deg,rgba(0,0,0,0) 45%,rgba(0,0,0,.22))}
+/* Inline stat row, AllTrails-style */
+.statrow{display:flex;gap:6px;margin-bottom:14px}
+.statrow .st{flex:1;min-width:0}
+.statrow .v{font-size:16.5px;font-weight:800;color:var(--ink);letter-spacing:-.01em;line-height:1.15}
+.statrow .k{color:var(--muted);font-size:11.5px;font-weight:600;margin-top:2px}
+/* Attribute chips */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;
+  padding:6px 12px;font-size:12.5px;font-weight:600;color:var(--text)}
+.dirbtn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;
+  padding:14px;border-radius:999px;background:var(--green);color:#fff;font-weight:700;
+  font-size:15px;text-decoration:none;box-shadow:0 4px 16px rgba(43,122,63,.3);
+  transition:transform .08s,background .15s}
+.dirbtn:active{transform:translateY(1px);background:var(--green-deep)}
+.dirbtn svg{flex:none}
 .ontrail{background:#e7f4ec;border:1px solid #bfe2ca;border-radius:16px;padding:14px;font-size:14px;color:var(--text)}
 .ontrail b{color:var(--green-deep)}
 .empty{color:var(--muted);text-align:center;padding:30px 14px;font-size:14px}
