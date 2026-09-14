@@ -1,7 +1,9 @@
 /* Minimal service worker: cache the app shell so Waypoint opens offline.
  * Map tiles and trail data still need a connection the first time you view
  * an area — a later version can pre-cache tiles for offline hikes. */
-const CACHE = 'waypoint-v1';
+/* Bump this version on every release so the service worker re-installs and
+ * evicts the old cached app shell — otherwise cache-first serves stale UI. */
+const CACHE = 'waypoint-v2';
 const SHELL = [
   './', './index.html', './css/styles.css', './js/app.js', './js/overpass.js',
   './manifest.webmanifest',
