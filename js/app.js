@@ -27,7 +27,9 @@ const els = {
   locate: $('locate'), find: $('findBtn'), status: $('status'), list: $('list'),
   sheet: $('sheet'), handle: $('sheetHandle'), detail: $('detail'), back: $('backBtn'),
   dName: $('dName'), dStats: $('dStats'), onTrail: $('onTrail'), wx: $('wx'),
-  hero: $('hero'), heroGo: $('heroGo'), heroSkip: $('heroSkip'), heroBrowse: $('heroBrowse'),
+  hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
+  heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
+  placeForm: $('placeForm'), placeInput: $('placeInput'),
 };
 
 let trails = [];      // last search results
@@ -41,9 +43,47 @@ function dismissHero() {
   // Leaflet sized itself under the hero; recompute once it's out of the way.
   setTimeout(() => { map.invalidateSize(); els.hero.hidden = true; }, 520);
 }
-els.heroGo.addEventListener('click', () => { autoFind = true; dismissHero(); startLocating(); });
+// Hero search: geocode the typed place, or fall back to GPS if it's empty.
+els.heroForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = els.heroInput.value.trim();
+  dismissHero();
+  if (q) searchPlace(q);
+  else { autoFind = true; startLocating(); }
+});
+els.heroLocate.addEventListener('click', () => { autoFind = true; dismissHero(); startLocating(); });
 els.heroSkip.addEventListener('click', dismissHero);
 els.heroBrowse.addEventListener('click', dismissHero);
+
+// Sheet search bar: same place search, available after the hero is gone.
+els.placeForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = els.placeInput.value.trim();
+  if (q) searchPlace(q);
+});
+
+// ---- Search trails near a typed place (zip / postal code / place name) ----
+async function searchPlace(q) {
+  setSheet('open');
+  setStatus(`Finding “${esc(q)}”… <span class="spin"></span>`);
+  map.invalidateSize();
+  let loc;
+  try {
+    loc = await geocodePlace(q);
+  } catch {
+    setStatus('Place lookup failed. Check your connection and try again.');
+    return;
+  }
+  if (!loc) {
+    setStatus(`Couldn’t find “${esc(q)}”. Try a zip code or a city/park name.`);
+    return;
+  }
+  if (els.placeInput) els.placeInput.value = q;
+  map.setView([loc.lat, loc.lon], 14);
+  loadWeather(loc.lat, loc.lon);
+  // Search around the geocoded spot (not the user's GPS).
+  findTrails({ lat: loc.lat, lon: loc.lon, label: loc.label });
+}
 
 // ---- Bottom sheet expand/collapse --------------------------------------
 function setSheet(state) { els.sheet.dataset.state = state; }
@@ -94,21 +134,25 @@ function onPosErr(err) {
 }
 
 // ---- Find trails --------------------------------------------------------
-els.find.addEventListener('click', findTrails);
+els.find.addEventListener('click', () => findTrails());
 
-async function findTrails() {
-  const c = mePos ? { lat: mePos[0], lon: mePos[1] } : map.getCenter();
-  const lat = mePos ? mePos[0] : c.lat;
-  const lon = mePos ? mePos[1] : c.lng;
+/* Find trails around an explicit {lat,lon,label}, else the user's GPS, else
+ * the current map center. */
+async function findTrails(center) {
+  const lat = center ? center.lat : (mePos ? mePos[0] : map.getCenter().lat);
+  const lon = center ? center.lon : (mePos ? mePos[1] : map.getCenter().lng);
+  const where = center && center.label ? ` near ${esc(center.label)}` : '';
   els.find.disabled = true;
-  setStatus('Searching OpenStreetMap for trails… <span class="spin"></span>');
+  setStatus(`Searching OpenStreetMap for trails${where}… <span class="spin"></span>`);
   setSheet('open');
   try {
     trails = await fetchTrailsNear(lat, lon, 7000);
     renderList();
-    setStatus(trails.length ? `${trails.length} trails within ~7 km.` : '');
+    setStatus(trails.length
+      ? `${trails.length} trails within ~7 km${where}.`
+      : `No scenic trails found${where}. Try another spot.`);
   } catch (e) {
-    setStatus('Trail search failed (Overpass busy). Try again in a moment.');
+    setStatus('Trail search failed (servers busy). Try again in a moment.');
   } finally {
     els.find.disabled = false;
   }
