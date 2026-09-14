@@ -238,6 +238,20 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
   transition:transform .08s,background .15s}
 .dirbtn:active{transform:translateY(1px);background:var(--green-deep)}
 .dirbtn svg{flex:none}
+/* Secondary "download for offline" button */
+.dlbtn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;margin-top:10px;
+  padding:13px;border-radius:999px;font:inherit;font-weight:700;font-size:15px;cursor:pointer;
+  background:var(--surface);color:var(--green);border:1.5px solid var(--green);
+  transition:transform .08s,background .15s,color .15s}
+.dlbtn svg{flex:none}
+.dlbtn:active{transform:translateY(1px)}
+.dlbtn:disabled{opacity:.75;cursor:default}
+.dlbtn.done{background:#e7f4ec;border-color:#bfe2ca;color:var(--green-deep)}
+/* "Downloaded trails (N)" bar in the sheet head */
+.savedbar{width:100%;margin-top:10px;padding:11px 14px;border-radius:12px;border:1px dashed var(--line);
+  background:var(--surface-2);color:var(--text);font:inherit;font-weight:650;font-size:13.5px;
+  cursor:pointer;text-align:center;transition:background .15s}
+.savedbar:active{background:#eef2ee}
 .ontrail{background:#e7f4ec;border:1px solid #bfe2ca;border-radius:16px;padding:14px;font-size:14px;color:var(--text)}
 .ontrail b{color:var(--green-deep)}
 .empty{color:var(--muted);text-align:center;padding:30px 14px;font-size:14px}

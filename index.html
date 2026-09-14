@@ -71,6 +71,7 @@
         <button type="submit">Go</button>
       </form>
       <button id="findBtn" class="primary"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm0-6a1 1 0 011 1v1.06A8 8 0 0118.94 11H20a1 1 0 110 2h-1.06A8 8 0 0113 18.94V20a1 1 0 11-2 0v-1.06A8 8 0 015.06 13H4a1 1 0 110-2h1.06A8 8 0 0111 5.06V4a1 1 0 011-1z" fill="currentColor"/></svg>Find trails near here</button>
+      <button class="savedbar" id="savedBtn" hidden></button>
       <div class="status" id="status">Search a place above, or tap the crosshair to use your location.</div>
     </div>
     <div class="list" id="list"></div>
@@ -97,6 +98,10 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6.3 7-11a7 7 0 10-14 0c0 4.7 7 11 7 11z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.5" fill="currentColor"/></svg>
         Get directions
       </a>
+      <button class="dlbtn" id="dDownload" data-saved="0">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3v11m0 0l-4-4m4 4l4-4M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="lbl">Download for offline</span>
+      </button>
       <div class="ontrail" id="onTrail" hidden></div>
     </div>
   </section>
