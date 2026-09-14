@@ -250,8 +250,9 @@ async function geocodeOpenMeteo(query, bias = null, fetchImpl = fetch) {
 
 /* Elevation profile along a trail via Open-Meteo's free elevation API (no key,
  * CORS-friendly). Samples up to 80 points evenly and returns:
- *   { elevations:[m...], dists:[cumulative m...], gain:m }
- * enough to both show total gain and draw the elevation-vs-distance chart.
+ *   { elevations:[m...], dists:[cumulative m...], coords:[[lat,lon]...], gain:m }
+ * enough to show total gain, draw the chart, and map a chart position back to a
+ * point on the trail (for the interactive scrubber).
  * Returns null on failure so the UI can omit it. */
 async function fetchElevationProfile(points, fetchImpl = fetch) {
   if (!Array.isArray(points) || points.length < 2) return null;
@@ -270,7 +271,7 @@ async function fetchElevationProfile(points, fetchImpl = fetch) {
   for (let i = 1; i < samp.length; i++) dists.push(dists[i - 1] + haversine(samp[i - 1], samp[i]));
   let gain = 0;
   for (let i = 1; i < el.length; i++) { const d = el[i] - el[i - 1]; if (d > 0) gain += d; }
-  return { elevations: el, dists, gain };
+  return { elevations: el, dists, coords: samp, gain };
 }
 
 /* A scenic photo near [lat,lon] from Wikimedia Commons (free, no key, CORS via

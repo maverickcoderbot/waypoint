@@ -353,34 +353,78 @@ els.dTrack.addEventListener('scroll', () => {
   if (!els.dCount.hidden && n) els.dCount.textContent = `${i + 1}/${n}`;
 });
 
-// Render an elevation-vs-distance profile chart (SVG area + line).
+// Render an interactive elevation-vs-distance chart. Hover/drag scrubs a marker
+// along the trail on the map and shows the elevation/distance at that point.
+let elevState = null;   // { prof, min, range, total }
+let elevMarker = null;  // Leaflet marker tracking the scrub position
+const ftOf = (m) => Math.round(m * 3.281);
+
 function renderElevation(prof) {
   const el = prof && prof.elevations;
-  if (!el || el.length < 2) { els.dElev.hidden = true; return; }
+  if (!el || el.length < 2) { els.dElev.hidden = true; elevState = null; return; }
   const W = 100, H = 34;
   const min = Math.min(...el), max = Math.max(...el), range = (max - min) || 1;
   const total = prof.dists[prof.dists.length - 1] || 1;
-  const pts = el.map((e, i) => [
-    (prof.dists[i] / total) * W,
-    H - ((e - min) / range) * H,
-  ]);
-  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-  const area = `${line} L${W},${H} L0,${H} Z`;
-  const ft = (m) => Math.round(m * 3.281);
+  const line = el.map((e, i) =>
+    `${i ? 'L' : 'M'}${((prof.dists[i] / total) * W).toFixed(1)},${(H - ((e - min) / range) * H).toFixed(1)}`).join(' ');
   els.dElev.innerHTML = `
-    <div class="elev-head"><span>Elevation</span><span>${ft(min)}–${ft(max)} ft</span></div>
-    <svg class="elev-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
-      <path class="elev-area" d="${area}"/><path class="elev-line" d="${line}"/>
-    </svg>
+    <div class="elev-head"><span>Elevation</span><span id="dElevRead">${ftOf(min)}–${ftOf(max)} ft</span></div>
+    <div class="elev-plot" id="dElevPlot">
+      <svg class="elev-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+        <path class="elev-area" d="${line} L${W},${H} L0,${H} Z"/><path class="elev-line" d="${line}"/>
+      </svg>
+      <div class="elev-cursor" id="dElevCursor"></div>
+      <div class="elev-dot" id="dElevDot"></div>
+    </div>
     <div class="elev-axis"><span>0</span><span>${(total / 1000).toFixed(1)} km</span></div>`;
   els.dElev.hidden = false;
+  elevState = { prof, min, range, total };
+  const plot = $('dElevPlot');
+  plot.onpointerdown = (e) => { plot.setPointerCapture?.(e.pointerId); elevScrub(e); };
+  plot.onpointermove = elevScrub;
+  plot.onpointerleave = elevScrubEnd;
+  plot.onpointercancel = elevScrubEnd;
 }
+
+function elevScrub(e) {
+  if (!elevState) return;
+  const plot = $('dElevPlot');
+  const rect = plot.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+  const target = (x / rect.width) * elevState.total;
+  const { dists, elevations, coords } = elevState.prof;
+  let idx = 0, best = Infinity;
+  for (let i = 0; i < dists.length; i++) { const d = Math.abs(dists[i] - target); if (d < best) { best = d; idx = i; } }
+  const xPx = (dists[idx] / elevState.total) * rect.width;
+  const yPx = rect.height * (1 - (elevations[idx] - elevState.min) / elevState.range);
+  const cursor = $('dElevCursor'), dot = $('dElevDot');
+  cursor.style.left = `${xPx}px`; cursor.style.display = 'block';
+  dot.style.left = `${xPx}px`; dot.style.top = `${yPx}px`; dot.style.display = 'block';
+  $('dElevRead').textContent = `${ftOf(elevations[idx])} ft · ${(dists[idx] / 1000).toFixed(2)} km`;
+  if (coords && coords[idx]) {
+    if (!elevMarker) {
+      elevMarker = L.circleMarker(coords[idx], { radius: 7, color: '#fff', weight: 3, fillColor: '#c02a3b', fillOpacity: 1 }).addTo(map);
+    } else { elevMarker.setLatLng(coords[idx]); }
+  }
+  if (e.cancelable) e.preventDefault();
+}
+
+function elevScrubEnd() {
+  const c = $('dElevCursor'), d = $('dElevDot'), r = $('dElevRead');
+  if (c) c.style.display = 'none';
+  if (d) d.style.display = 'none';
+  if (r && elevState) r.textContent = `${ftOf(elevState.min)}–${ftOf(elevState.max)} ft`;
+  removeElevMarker();
+}
+function removeElevMarker() { if (elevMarker) { map.removeLayer(elevMarker); elevMarker = null; } }
 
 function openTrail(t) {
   selected = t;
   els.list.hidden = true;
   els.detail.hidden = false;
   els.dElev.hidden = true; // clear previous trail's chart until this one loads
+  removeElevMarker();
   els.sheetHead.hidden = true; // hide search/find while reading a trail (declutter)
   setSheet('peek'); // mid height so the highlighted trail stays visible on the map
   els.dName.textContent = t.name;
@@ -433,7 +477,7 @@ function openTrail(t) {
   updateOnTrail();
 }
 
-els.back.addEventListener('click', () => { selected = null; renderList(); });
+els.back.addEventListener('click', () => { selected = null; removeElevMarker(); renderList(); });
 
 /* Snap the user's GPS to the nearest point on the selected trail, and work
  * out how far off-trail they are and how far along the route. */
