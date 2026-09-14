@@ -274,21 +274,25 @@ async function fetchElevationGain(points, fetchImpl = fetch) {
  * so we only accept ones whose title reads as scenery — otherwise return null
  * and let the UI fall back to its gradient banner. Not Google Maps: those photos
  * need a paid, billing-enabled API key and scraping breaks Google's ToS. */
-const SCENIC_TITLE = /\b(park|trail|lake|creek|river|forest|wood|woods|panorama|landscape|nature|bluff|falls?|meadow|prairie|pond|glade|greenway|valley|ridge|scenic|overlook|garden|reserve|preserve|hiking|path)\b/i;
-async function fetchTrailPhoto(lat, lon, fetchImpl = fetch) {
+const SCENIC_TITLE = /\b(park|trail|lake|creek|river|forest|wood|woods|panorama|landscape|nature|bluff|falls?|meadow|prairie|pond|glade|greenway|valley|ridge|scenic|overlook|garden|reserve|preserve|hiking|path|marsh|wetland|meramec|summit)\b/i;
+/* Up to `limit` scenic landscape photos near [lat,lon] from Wikimedia Commons,
+ * nearest first. Returns [] when nothing scenic is nearby (UI keeps its gradient). */
+async function fetchTrailPhotos(lat, lon, limit = 6, fetchImpl = fetch) {
   const url = `https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*` +
-    `&generator=geosearch&ggsradius=1600&ggscoord=${lat}|${lon}&ggslimit=12&ggsnamespace=6` +
-    `&prop=imageinfo&iiprop=url|mime|size&iiurlwidth=1000`;
+    `&generator=geosearch&ggsradius=2000&ggscoord=${lat}|${lon}&ggslimit=20&ggsnamespace=6` +
+    `&prop=imageinfo&iiprop=url|mime|size&iiurlwidth=1200`;
   const res = await fetchWithTimeout(fetchImpl, url, {}, 10000);
   if (!res.ok) throw new Error('photo HTTP ' + res.status);
   const pages = (await res.json())?.query?.pages;
-  if (!pages) return null;
-  const cands = Object.values(pages)
+  if (!pages) return [];
+  return Object.values(pages)
+    .sort((a, b) => (a.index || 0) - (b.index || 0)) // geosearch order = nearest first
     .map((p) => ({ title: p.title || '', ii: (p.imageinfo || [])[0] }))
     .filter((c) => c.ii && c.ii.thumburl && /image\/(jpeg|png|webp)/.test(c.ii.mime || '')
-      && (c.ii.width || 0) >= (c.ii.height || 0)); // landscape-ish only
-  const scenic = cands.find((c) => SCENIC_TITLE.test(c.title));
-  return scenic ? scenic.ii.thumburl : null;
+      && (c.ii.width || 0) >= (c.ii.height || 0) // landscape-ish only
+      && SCENIC_TITLE.test(c.title))
+    .slice(0, limit)
+    .map((c) => c.ii.thumburl);
 }
 
 /* Current + today's weather from Open-Meteo (free, no key). */
@@ -315,5 +319,5 @@ function describeWeather(code) {
 
 // Let Node import these for testing; harmless in the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversine, pathLength, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationGain, fetchTrailPhoto };
+  module.exports = { haversine, pathLength, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationGain, fetchTrailPhotos };
 }

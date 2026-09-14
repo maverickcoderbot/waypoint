@@ -77,8 +77,14 @@
 
     <!-- Trail detail (hidden until a trail is picked) -->
     <div class="detail" id="detail" hidden>
-      <button class="back" id="backBtn">← All trails</button>
-      <div class="dbanner" id="dBanner"></div>
+      <div class="gallery" id="dGallery">
+        <div class="track" id="dTrack"></div>
+        <div class="dots" id="dDots"></div>
+        <div class="gcount" id="dCount" hidden></div>
+        <button class="gback" id="backBtn" aria-label="Back to all trails">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
       <div class="dhead">
         <h2 id="dName">Trail</h2>
         <span class="badge" id="dBadge"></span>

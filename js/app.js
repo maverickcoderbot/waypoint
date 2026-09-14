@@ -28,7 +28,7 @@ const els = {
   sheet: $('sheet'), handle: $('sheetHandle'), detail: $('detail'), back: $('backBtn'),
   dName: $('dName'), dStats: $('dStats'), onTrail: $('onTrail'), wx: $('wx'),
   dBadge: $('dBadge'), dType: $('dType'), dDirections: $('dDirections'),
-  dBanner: $('dBanner'), dChips: $('dChips'),
+  dChips: $('dChips'), dTrack: $('dTrack'), dDots: $('dDots'), dCount: $('dCount'),
   hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
   placeForm: $('placeForm'), placeInput: $('placeInput'), sheetHead: $('sheetHead'),
@@ -324,6 +324,35 @@ function trailChips(t) {
   return chips;
 }
 
+// Build the photo gallery: swipeable image slides + dots, or a gradient slide.
+const DIFF_CLS = { Easy: 'easy', Moderate: 'mod', Hard: 'hard' };
+function renderGallery(t, photos) {
+  const grad = DIFF_CLS[t.difficulty];
+  if (!photos || !photos.length) {
+    els.dTrack.innerHTML = `<div class="slide grad ${grad}"></div>`;
+    els.dDots.innerHTML = '';
+    els.dCount.hidden = true;
+    return;
+  }
+  els.dTrack.innerHTML = photos
+    .map((src) => `<div class="slide" style="background-image:url('${src.replace(/'/g, '%27')}')"></div>`)
+    .join('');
+  els.dDots.innerHTML = photos.length > 1
+    ? photos.map((_, i) => `<span class="dot${i === 0 ? ' on' : ''}"></span>`).join('') : '';
+  els.dCount.hidden = photos.length < 2;
+  els.dCount.textContent = `1/${photos.length}`;
+  els.dTrack.scrollLeft = 0;
+}
+// Sync dots + counter as the user swipes the gallery (bound once).
+els.dTrack.addEventListener('scroll', () => {
+  const w = els.dTrack.clientWidth;
+  if (!w) return;
+  const i = Math.round(els.dTrack.scrollLeft / w);
+  els.dDots.querySelectorAll('.dot').forEach((d, j) => d.classList.toggle('on', j === i));
+  const n = els.dDots.children.length;
+  if (!els.dCount.hidden && n) els.dCount.textContent = `${i + 1}/${n}`;
+});
+
 function openTrail(t) {
   selected = t;
   els.list.hidden = true;
@@ -331,22 +360,14 @@ function openTrail(t) {
   els.sheetHead.hidden = true; // hide search/find while reading a trail (declutter)
   setSheet('peek'); // mid height so the highlighted trail stays visible on the map
   els.dName.textContent = t.name;
-  const cls = { Easy: 'easy', Moderate: 'mod', Hard: 'hard' };
-  els.dBanner.className = `dbanner ${cls[t.difficulty]}`;
-  els.dBanner.style.backgroundImage = ''; // reset to gradient; photo fills in if found
-  // Real scenic photo (Wikimedia) around the trail's midpoint; gradient stays if none.
+  const cls = DIFF_CLS;
+  renderGallery(t, null); // gradient placeholder immediately
+  // Real scenic photos (Wikimedia) near the trail's midpoint; swipeable gallery.
   const mid = t.points[Math.floor(t.points.length / 2)];
   const forPhoto = t;
-  cached(`photo:${mid[0].toFixed(3)},${mid[1].toFixed(3)}`, TTL.photo,
-    () => fetchTrailPhoto(mid[0], mid[1])).then((src) => {
-    if (selected !== forPhoto || !src) return;
-    const img = new Image();
-    img.onload = () => {
-      if (selected !== forPhoto) return;
-      els.dBanner.style.backgroundImage = `url("${src}")`;
-      els.dBanner.classList.add('has-photo');
-    };
-    img.src = src;
+  cached(`photos:${mid[0].toFixed(3)},${mid[1].toFixed(3)}`, TTL.photo,
+    () => fetchTrailPhotos(mid[0], mid[1], 6)).then((photos) => {
+    if (selected === forPhoto && photos && photos.length) renderGallery(t, photos);
   }).catch(() => {});
   els.dBadge.className = `badge ${cls[t.difficulty]}`;
   els.dBadge.textContent = t.difficulty;
