@@ -107,7 +107,8 @@ function applySheet(px, animate) {
   els.sheet.style.transition = animate ? 'height .3s cubic-bezier(.4,0,.2,1)' : 'none';
   els.sheet.style.height = `${px}px`;
   sheetPx = px;
-  els.locate.style.bottom = `${px + 16}px`; // keep the locate button above the sheet
+  // Keep the locate button above the sheet, but never let it slide off the top.
+  els.locate.style.bottom = `${Math.min(px + 16, window.innerHeight - 84)}px`;
 }
 function snapNearest(px) {
   return snapPoints().reduce((a, b) => (Math.abs(b - px) < Math.abs(a - px) ? b : a));
@@ -147,7 +148,24 @@ window.addEventListener('resize', () => { if (sheetPx != null) applySheet(snapNe
 applySheet(snapPoints()[1], false);
 
 // ---- Geolocation --------------------------------------------------------
-els.locate.addEventListener('click', startLocating);
+// Locate button: always recenters on your position; if you don't have a fix yet
+// it starts locating. On a trail, it toggles between "center on me" and framing
+// the whole trail, so a second tap brings the trail back into view.
+let locateShowsTrail = false;
+function centerOnMe() { if (mePos) { map.setView(mePos, 16); locateShowsTrail = false; } }
+function frameTrail(t) {
+  const b = [];
+  t.segments.forEach((seg) => seg.forEach((p) => b.push(p)));
+  if (b.length) map.fitBounds(b, { paddingTopLeft: [30, 70], paddingBottomRight: [30, (sheetPx || 300) + 20] });
+  locateShowsTrail = true;
+}
+function onLocateClick() {
+  if (!mePos) { startLocating(); return; }        // no fix yet → start; first fix centers
+  if (selected && locateShowsTrail) centerOnMe();  // showing trail → jump to me
+  else if (selected) frameTrail(selected);         // showing me → back to the trail
+  else centerOnMe();
+}
+els.locate.addEventListener('click', onLocateClick);
 
 function startLocating() {
   if (!('geolocation' in navigator)) {
@@ -172,6 +190,7 @@ function onPos(pos) {
     }).addTo(map);
     meAccuracy = L.circle(mePos, { radius: accuracy, color: '#3b82f6', weight: 1, fillOpacity: 0.08 }).addTo(map);
     map.setView(mePos, 15);
+    locateShowsTrail = false;
     loadWeather(lat, lon);
     setStatus('Located. Now find trails near you.');
     if (autoFind) { autoFind = false; findTrails(); }
@@ -464,6 +483,7 @@ function openTrail(t) {
   els.dDirections.href = `https://www.google.com/maps/dir/?api=1&destination=${head[0]},${head[1]}&travelmode=driving`;
   els.dDownload.disabled = false;
   isSaved(t.id).then(setDownloadState);
+  locateShowsTrail = true; // trail is framed on open; first locate tap goes to "me"
 
   // Fetch elevation profile in the background (cached by trail id): fills the
   // gain stat and draws the elevation chart. Leaves "—" / no chart if it fails.

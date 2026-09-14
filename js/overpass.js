@@ -53,6 +53,35 @@ function pathLength(points) {
   return m;
 }
 
+/* OSM splits a trail into segments returned in arbitrary order/direction. Chain
+ * them into one continuous path by greedily attaching the nearest remaining
+ * segment endpoint (flipping/prepending as needed). This makes the elevation
+ * profile and the map scrubber follow the actual route instead of jumping. */
+function orderSegments(segments) {
+  const segs = segments.filter((s) => s && s.length).map((s) => s.slice());
+  if (segs.length <= 1) return segs[0] ? segs[0].slice() : [];
+  const used = new Array(segs.length).fill(false);
+  let path = segs[0].slice(); used[0] = true;
+  for (let n = 1; n < segs.length; n++) {
+    const head = path[0], tail = path[path.length - 1];
+    let best = -1, bestD = Infinity, mode = 0; // 0 append, 1 append-rev, 2 prepend-rev, 3 prepend
+    for (let i = 0; i < segs.length; i++) {
+      if (used[i]) continue;
+      const a = segs[i][0], b = segs[i][segs[i].length - 1];
+      const cand = [haversine(tail, a), haversine(tail, b), haversine(head, a), haversine(head, b)];
+      for (let m = 0; m < 4; m++) if (cand[m] < bestD) { bestD = cand[m]; best = i; mode = m; }
+    }
+    if (best < 0) break;
+    used[best] = true;
+    const s = segs[best];
+    if (mode === 0) path = path.concat(s);
+    else if (mode === 1) path = path.concat(s.slice().reverse());
+    else if (mode === 2) path = s.slice().reverse().concat(path);
+    else path = s.slice().concat(path);
+  }
+  return path;
+}
+
 /* Rough difficulty from distance + OSM tags. Good enough for a first pass;
  * later we can factor in real elevation gain. */
 function difficulty(lengthKm, tags = {}) {
@@ -169,7 +198,7 @@ async function fetchTrailsNear(lat, lon, radius = 20000, fetchImpl = fetch, maxR
 
   const trails = [];
   for (const t of byName.values()) {
-    const points = t.segments.flat();
+    const points = orderSegments(t.segments); // continuous route order, not raw concat
     if (points.length < 2) continue;
     const meters = t.segments.reduce((s, seg) => s + pathLength(seg), 0);
     if (meters < 100) continue; // skip degenerate stubs (e.g. a 30 m named fragment)
@@ -265,13 +294,20 @@ async function fetchElevationProfile(points, fetchImpl = fetch) {
   const url = `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`;
   const res = await fetchWithTimeout(fetchImpl, url, {}, 12000);
   if (!res.ok) throw new Error('elevation HTTP ' + res.status);
-  const el = (await res.json()).elevation;
-  if (!Array.isArray(el) || el.length < 2) return null;
+  const raw = (await res.json()).elevation;
+  if (!Array.isArray(raw)) return null;
+  // Open-Meteo can return null for some points (no data / water) — drop those,
+  // keeping elevations, coords and distances in sync, so no NaN reaches the UI.
+  const elevations = [], coords = [];
+  for (let i = 0; i < raw.length; i++) {
+    if (Number.isFinite(raw[i]) && samp[i]) { elevations.push(raw[i]); coords.push(samp[i]); }
+  }
+  if (elevations.length < 2) return null;
   const dists = [0];
-  for (let i = 1; i < samp.length; i++) dists.push(dists[i - 1] + haversine(samp[i - 1], samp[i]));
+  for (let i = 1; i < coords.length; i++) dists.push(dists[i - 1] + haversine(coords[i - 1], coords[i]));
   let gain = 0;
-  for (let i = 1; i < el.length; i++) { const d = el[i] - el[i - 1]; if (d > 0) gain += d; }
-  return { elevations: el, dists, coords: samp, gain };
+  for (let i = 1; i < elevations.length; i++) { const d = elevations[i] - elevations[i - 1]; if (d > 0) gain += d; }
+  return { elevations, dists, coords, gain };
 }
 
 /* A scenic photo near [lat,lon] from Wikimedia Commons (free, no key, CORS via
@@ -324,5 +360,5 @@ function describeWeather(code) {
 
 // Let Node import these for testing; harmless in the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversine, pathLength, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos };
+  module.exports = { haversine, pathLength, orderSegments, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos };
 }
