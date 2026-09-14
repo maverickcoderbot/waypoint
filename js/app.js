@@ -29,6 +29,7 @@ const els = {
   dName: $('dName'), dStats: $('dStats'), onTrail: $('onTrail'), wx: $('wx'),
   dBadge: $('dBadge'), dType: $('dType'), dDirections: $('dDirections'),
   dChips: $('dChips'), dTrack: $('dTrack'), dDots: $('dDots'), dCount: $('dCount'), dElev: $('dElev'),
+  dConditions: $('dConditions'),
   hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
   placeForm: $('placeForm'), placeInput: $('placeInput'), sheetHead: $('sheetHead'),
@@ -447,11 +448,36 @@ function elevScrubEnd() {
 }
 function removeElevMarker() { if (elevMarker) { map.removeLayer(elevMarker); elevMarker = null; } }
 
+// Estimate ground condition from recent rainfall + temperature.
+function groundCondition(recentMm, tempF) {
+  if (tempF != null && tempF <= 32) return ['❄️', 'May be icy or frozen'];
+  if (recentMm > 15) return ['💧', 'Wet — heavy recent rain, expect mud'];
+  if (recentMm > 4) return ['💧', 'Some recent rain, may be muddy'];
+  return ['🌤️', 'Likely dry underfoot'];
+}
+// Render the Conditions block: live weather at the trail, ground estimate, terrain.
+function renderConditions(c, t) {
+  if (!c) { els.dConditions.hidden = true; return; }
+  const [label, emoji] = describeWeather(c.code || 0);
+  const wx = c.tempF != null
+    ? `${emoji} ${c.tempF}°F · ${label}${c.rainProb != null ? ` · ${c.rainProb}% rain today` : ''}`
+    : 'Weather unavailable';
+  const [gEmoji, gTxt] = groundCondition(c.recentPrecipMm, c.tempF);
+  const surf = t.tags && t.tags.surface ? ` (${esc(String(t.tags.surface).replace(/_/g, ' '))})` : '';
+  els.dConditions.innerHTML = `
+    <div class="cond-head">Conditions</div>
+    <div class="cond-row">${wx}</div>
+    <div class="cond-row">${gEmoji} ${gTxt}</div>
+    <div class="cond-row">🥾 ${esc(trailType(t.tags))}${surf}</div>`;
+  els.dConditions.hidden = false;
+}
+
 function openTrail(t) {
   selected = t;
   els.list.hidden = true;
   els.detail.hidden = false;
   els.dElev.hidden = true; // clear previous trail's chart until this one loads
+  els.dConditions.hidden = true;
   removeElevMarker();
   els.sheetHead.hidden = true; // hide search/find while reading a trail (declutter)
   setSheet('peek'); // mid height so the highlighted trail stays visible on the map
@@ -461,6 +487,9 @@ function openTrail(t) {
   // Real scenic photos (Wikimedia) near the trail's midpoint; swipeable gallery.
   const mid = t.points[Math.floor(t.points.length / 2)];
   const forPhoto = t;
+  // Trail conditions (weather + recent rain → mud estimate + terrain).
+  cached(`cond:${mid[0].toFixed(2)},${mid[1].toFixed(2)}`, TTL.cond, () => fetchConditions(mid[0], mid[1]))
+    .then((c) => { if (selected === forPhoto) renderConditions(c, t); }).catch(() => {});
   cached(`photos:${mid[0].toFixed(3)},${mid[1].toFixed(3)}`, TTL.photo,
     () => fetchTrailPhotos(mid[0], mid[1], 6)).then((photos) => {
     if (selected === forPhoto && photos && photos.length) renderGallery(t, photos);

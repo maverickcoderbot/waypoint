@@ -21,6 +21,7 @@ const TTL = {
   geo: 30 * 24 * 3600 * 1000,      // 1 month
   photo: 30 * 24 * 3600 * 1000,    // 1 month
   elev: 180 * 24 * 3600 * 1000,    // 6 months
+  cond: 2 * 3600 * 1000,           // 2 hours (weather changes)
 };
 
 let _dbPromise = null;

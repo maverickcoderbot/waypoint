@@ -336,6 +336,29 @@ async function fetchTrailPhotos(lat, lon, limit = 6, fetchImpl = fetch) {
     .map((c) => c.ii.thumburl);
 }
 
+/* Trail conditions from Open-Meteo (free, no key): current weather at the trail
+ * plus recent rainfall (past 3 days) so we can estimate how muddy the ground is.
+ * Returns { tempF, code, rainProb, recentPrecipMm } or null. */
+async function fetchConditions(lat, lon, fetchImpl = fetch) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+    `&current=temperature_2m,weather_code` +
+    `&daily=precipitation_sum,precipitation_probability_max` +
+    `&past_days=3&forecast_days=1&temperature_unit=fahrenheit&timezone=auto`;
+  const res = await fetchWithTimeout(fetchImpl, url, {}, 12000);
+  if (!res.ok) throw new Error('conditions HTTP ' + res.status);
+  const j = await res.json();
+  const cur = j.current || {}, daily = j.daily || {};
+  const precip = daily.precipitation_sum || [];
+  const recentPrecipMm = precip.slice(0, Math.max(0, precip.length - 1)).reduce((a, b) => a + (b || 0), 0);
+  const probs = daily.precipitation_probability_max || [];
+  return {
+    tempF: Number.isFinite(cur.temperature_2m) ? Math.round(cur.temperature_2m) : null,
+    code: cur.weather_code ?? null,
+    rainProb: probs.length ? probs[probs.length - 1] : null,
+    recentPrecipMm: Math.round(recentPrecipMm * 10) / 10,
+  };
+}
+
 /* Current + today's weather from Open-Meteo (free, no key). */
 async function fetchWeather(lat, lon, fetchImpl = fetch) {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
@@ -360,5 +383,5 @@ function describeWeather(code) {
 
 // Let Node import these for testing; harmless in the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversine, pathLength, orderSegments, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos };
+  module.exports = { haversine, pathLength, orderSegments, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos, fetchConditions };
 }
