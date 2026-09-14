@@ -75,7 +75,8 @@ async function searchPlace(q) {
   const bias = mePos ? { lat: mePos[0], lon: mePos[1] } : { lat: c.lat, lon: c.lng };
   let loc;
   try {
-    loc = await geocodePlace(q, bias);
+    const key = `geo:${q.toLowerCase()}|${bias.lat.toFixed(2)},${bias.lon.toFixed(2)}`;
+    loc = await cached(key, TTL.geo, () => geocodePlace(q, bias));
   } catch {
     setStatus('Place lookup failed. Check your connection and try again.');
     return;
@@ -195,6 +196,22 @@ els.find.addEventListener('click', () => findTrails());
 // rural spot still turns up nothing.
 const SEARCH_RADII = [24000, 48000];
 
+/* Trail fetch with an IndexedDB cache (stale-while-revalidate): a place you've
+ * viewed before returns instantly and still refreshes in the background. */
+async function trailsCached(lat, lon, radius) {
+  const key = `trails:${lat.toFixed(3)},${lon.toFixed(3)}:${radius}`;
+  const hit = await cacheGet(key);
+  if (hit && hit.length) {
+    fetchTrailsNear(lat, lon, radius)
+      .then((fresh) => { if (fresh && fresh.length) cacheSet(key, fresh, TTL.trails); })
+      .catch(() => {});
+    return { trails: hit, cached: true };
+  }
+  const fresh = await fetchTrailsNear(lat, lon, radius);
+  if (fresh && fresh.length) cacheSet(key, fresh, TTL.trails);
+  return { trails: fresh, cached: false };
+}
+
 /* Find trails around an explicit {lat,lon,label}, else the user's GPS, else
  * the current map center. Expands the radius until it finds trails. */
 async function findTrails(center) {
@@ -204,19 +221,19 @@ async function findTrails(center) {
   els.find.disabled = true;
   setSheet('open');
   try {
-    let usedKm = 0;
+    let usedKm = 0, fromCache = false;
     for (let i = 0; i < SEARCH_RADII.length; i++) {
       const km = SEARCH_RADII[i] / 1000;
       setStatus(i === 0
         ? `Searching for trails${where}… <span class="spin"></span>`
         : `No trails within ${SEARCH_RADII[i - 1] / 1000} km — widening to ${km} km… <span class="spin"></span>`);
-      trails = await fetchTrailsNear(lat, lon, SEARCH_RADII[i]);
-      usedKm = km;
+      const r = await trailsCached(lat, lon, SEARCH_RADII[i]);
+      trails = r.trails; fromCache = r.cached; usedKm = km;
       if (trails.length) break;
     }
     renderList();
     setStatus(trails.length
-      ? `${trails.length} trails within ~${usedKm} km${where}.`
+      ? `${trails.length} trails within ~${usedKm} km${where}${fromCache ? ' · cached' : ''}.`
       : `No scenic trails found within ${usedKm} km${where}. Try another area.`);
   } catch (e) {
     setStatus('Trail search failed (servers busy). Try again in a moment.');
@@ -320,7 +337,8 @@ function openTrail(t) {
   // Real scenic photo (Wikimedia) around the trail's midpoint; gradient stays if none.
   const mid = t.points[Math.floor(t.points.length / 2)];
   const forPhoto = t;
-  fetchTrailPhoto(mid[0], mid[1]).then((src) => {
+  cached(`photo:${mid[0].toFixed(3)},${mid[1].toFixed(3)}`, TTL.photo,
+    () => fetchTrailPhoto(mid[0], mid[1])).then((src) => {
     if (selected !== forPhoto || !src) return;
     const img = new Image();
     img.onload = () => {
@@ -347,9 +365,9 @@ function openTrail(t) {
   const head = t.points[0];
   els.dDirections.href = `https://www.google.com/maps/dir/?api=1&destination=${head[0]},${head[1]}&travelmode=driving`;
 
-  // Fetch elevation gain in the background; leave "—" if it fails.
+  // Fetch elevation gain in the background (cached by trail id); leave "—" if it fails.
   const forTrail = t;
-  fetchElevationGain(t.points).then((m) => {
+  cached(`elev:${t.id}`, TTL.elev, () => fetchElevationGain(t.points)).then((m) => {
     if (selected !== forTrail || m == null) return; // user moved on / no data
     const gainEl = $('dGain');
     if (gainEl) gainEl.textContent = `${Math.round((m * 3.281) / 10) * 10} ft`;
