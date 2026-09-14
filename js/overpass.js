@@ -44,16 +44,75 @@ function difficulty(lengthKm, tags = {}) {
   return 'Easy';
 }
 
+/* ---------------------------------------------------------------------------
+ * Scenic-vs-industrial filter.
+ *
+ * OSM lumps hiking trails in with sidewalks, farm tracks, service roads and
+ * utility/industrial paths under the same `highway` values. We want the
+ * nature/scenic ones only, so we (a) reject anything that is clearly urban or
+ * industrial, then (b) require at least one positive "this is a real trail"
+ * signal. Ambiguous leftovers (e.g. a plain named footway with no signal —
+ * usually a city sidewalk) are dropped.
+ * ------------------------------------------------------------------------- */
+
+// Natural/unpaved surfaces typical of real trails.
+const NATURE_SURFACE = new Set([
+  'ground', 'dirt', 'earth', 'grass', 'gravel', 'fine_gravel', 'compacted',
+  'unpaved', 'sand', 'rock', 'pebblestone', 'woodchips', 'mud', 'grass_paver',
+]);
+// Words that suggest a scenic/nature route (rail-trails count — "railroad trail").
+const NATURE_WORDS = /\b(trail|loop|greenway|nature|preserve|creek|ridge|river|lake|falls?|canyon|forest|woods?|glen|gorge|summit|peak|bluff|meadow|wetland|marsh|boardwalk|path|hike|hiking|scenic|overlook|vista|hollow|hoot|spur|switchback)\b/i;
+// Words that suggest an industrial/service/utility corridor (unless overridden below).
+const INDUSTRIAL_WORDS = /\b(pipeline|powerline|power\s?line|transmission|substation|utility|sewer|drainage|ditch|levee\s?access|service\s?road|access\s?road|maintenance|loading|dock|plant|refinery|quarry|mine|industrial|parking|driveway|siding|spur\s?track|conveyor)\b/i;
+
+function hasNatureSignal(tags) {
+  if (tags.route === 'hiking') return true;
+  if (tags.sac_scale || tags.trail_visibility || tags.mtb_scale) return true;
+  if (tags.highway === 'path' || tags.highway === 'bridleway') return true;
+  if (tags.surface && NATURE_SURFACE.has(tags.surface)) return true;
+  if (tags.leisure === 'track' || tags.leisure === 'nature_reserve') return true;
+  if (tags.name && NATURE_WORDS.test(tags.name)) return true;
+  return false;
+}
+
+function isIndustrialOrUrban(tags) {
+  // Hard rejects: sidewalks, crossings, private/blocked, indoor, service ways.
+  if (tags.footway === 'sidewalk' || tags.footway === 'crossing') return true;
+  if (tags.highway === 'steps') return true;
+  if (tags.access === 'private' || tags.access === 'no') return true;
+  if (tags.indoor === 'yes') return true;
+  if (tags.service) return true;                     // driveway, parking_aisle, etc.
+  if (tags.landuse === 'industrial' || tags.industrial) return true;
+  if (tags.man_made || tags.power || tags.pipeline) return true;
+  // Name-based industrial hint, but let a strong trail signal win (rail-trails).
+  if (tags.name && INDUSTRIAL_WORDS.test(tags.name) &&
+      !(tags.route === 'hiking' || tags.sac_scale)) return true;
+  return false;
+}
+
+/* Keep only scenic/nature trails: reject industrial/urban, then require a signal. */
+function isNatureTrail(tags = {}) {
+  if (isIndustrialOrUrban(tags)) return false;
+  return hasNatureSignal(tags);
+}
+
 /*
  * Fetch named trails within `radius` metres of [lat, lon].
  * Returns [{ id, name, points:[[lat,lon]...], km, difficulty, tags }] sorted by distance-ish.
  */
 async function fetchTrailsNear(lat, lon, radius = 6000, fetchImpl = fetch) {
+  // Query is already selective (drops sidewalks/crossings and service tracks
+  // at the source); isNatureTrail() does the finer scenic-vs-industrial call.
+  const a = `(around:${radius},${lat},${lon})`;
   const query = `
     [out:json][timeout:50];
     (
-      way["highway"~"path|footway|track|bridleway"]["name"](around:${radius},${lat},${lon});
-      way["route"="hiking"]["name"](around:${radius},${lat},${lon});
+      way["highway"="path"]["name"]${a};
+      way["highway"="bridleway"]["name"]${a};
+      way["highway"="footway"]["name"]["footway"!~"sidewalk|crossing"]${a};
+      way["highway"="track"]["name"]["service"!~"."]${a};
+      way["route"="hiking"]["name"]${a};
+      way["highway"]["name"]["sac_scale"]${a};
     );
     out geom;`;
 
@@ -76,6 +135,7 @@ async function fetchTrailsNear(lat, lon, radius = 6000, fetchImpl = fetch) {
   const byName = new Map();
   for (const el of data.elements) {
     if (!el.geometry || !el.tags || !el.tags.name) continue;
+    if (!isNatureTrail(el.tags)) continue; // scenic/nature only — skip industrial/urban
     const pts = el.geometry.map((g) => [g.lat, g.lon]);
     const key = el.tags.name;
     if (!byName.has(key)) byName.set(key, { id: el.id, name: key, segments: [], tags: el.tags });
@@ -126,5 +186,5 @@ function describeWeather(code) {
 
 // Let Node import these for testing; harmless in the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversine, pathLength, difficulty, fetchTrailsNear, fetchWeather, describeWeather };
+  module.exports = { haversine, pathLength, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban };
 }
