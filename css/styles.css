@@ -118,8 +118,13 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
   height:var(--sheet-peek);transition:height .3s cubic-bezier(.4,0,.2,1);
   display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom)}
 .sheet[data-state="open"]{height:var(--sheet-open)}
-.sheet-handle{width:40px;height:5px;border-radius:3px;background:var(--line);
-  margin:10px auto 2px;cursor:grab;flex:none}
+/* Enlarged, obviously-draggable grab zone (the visible pill sits inside it). */
+.sheet-handle{position:relative;height:24px;flex:none;cursor:grab;touch-action:none;
+  display:grid;place-items:center;margin-top:2px}
+.sheet-handle::before{content:"";width:44px;height:5px;border-radius:3px;background:var(--line);
+  transition:background .15s,width .15s}
+.sheet-handle:active{cursor:grabbing}
+.sheet-handle:active::before{background:var(--muted);width:52px}
 .sheet-head{padding:8px 18px 12px;flex:none}
 .status{color:var(--muted);font-size:13px;margin-top:10px;min-height:18px}
 
@@ -176,13 +181,15 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
   line-height:1.15}
 .dhead .badge{flex:none;font-size:12.5px;padding:5px 12px}
 .dtype{color:var(--muted);font-size:13px;font-weight:600;margin:0 0 14px}
-/* Scenic header banner (stands in for photos, tinted by difficulty) */
-.dbanner{height:112px;border-radius:16px;margin:2px 0 14px;position:relative;overflow:hidden;
-  background:linear-gradient(150deg,#8fd0a6,#2b7a3f)}
-.dbanner.mod{background:linear-gradient(150deg,#f0cf8a,#c07f1f)}
-.dbanner.hard{background:linear-gradient(150deg,#f0a79f,#c0392f)}
+/* Header banner: a real scenic photo when available, else a difficulty-tinted
+ * gradient with a mountain silhouette. */
+.dbanner{height:150px;border-radius:16px;margin:2px 0 14px;position:relative;overflow:hidden;
+  background-image:linear-gradient(150deg,#8fd0a6,#2b7a3f);background-size:cover;background-position:center}
+.dbanner.mod{background-image:linear-gradient(150deg,#f0cf8a,#c07f1f)}
+.dbanner.hard{background-image:linear-gradient(150deg,#f0a79f,#c0392f)}
 .dbanner::after{content:"";position:absolute;inset:0;
   background:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40"><path d="M0 40 L18 16 L30 28 L48 6 L66 30 L82 14 L100 34 L100 40 Z" fill="white" fill-opacity="0.18"/></svg>') bottom/cover no-repeat}
+.dbanner.has-photo::after{background:linear-gradient(180deg,rgba(0,0,0,0) 45%,rgba(0,0,0,.22))}
 /* Inline stat row, AllTrails-style */
 .statrow{display:flex;gap:6px;margin-bottom:14px}
 .statrow .st{flex:1;min-width:0}

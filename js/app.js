@@ -31,7 +31,7 @@ const els = {
   dBanner: $('dBanner'), dChips: $('dChips'),
   hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
-  placeForm: $('placeForm'), placeInput: $('placeInput'),
+  placeForm: $('placeForm'), placeInput: $('placeInput'), sheetHead: $('sheetHead'),
 };
 
 let trails = [];      // last search results
@@ -91,10 +91,58 @@ async function searchPlace(q) {
   findTrails({ lat: loc.lat, lon: loc.lon, label: loc.label });
 }
 
-// ---- Bottom sheet expand/collapse --------------------------------------
-function setSheet(state) { els.sheet.dataset.state = state; }
-els.handle.addEventListener('click', () =>
-  setSheet(els.sheet.dataset.state === 'open' ? 'peek' : 'open'));
+// ---- Bottom sheet: draggable with snap points --------------------------
+// Three heights: collapsed (peek the map/trail), mid, full. Drag the handle to
+// resize; it snaps to the nearest. Tap toggles between mid and full.
+function snapPoints() {
+  const vh = window.innerHeight;
+  return [76, Math.round(vh * 0.48), Math.round(vh * 0.9)];
+}
+let sheetPx = null;
+function applySheet(px, animate) {
+  const s = snapPoints();
+  px = Math.max(s[0], Math.min(s[s.length - 1], px));
+  els.sheet.style.transition = animate ? 'height .3s cubic-bezier(.4,0,.2,1)' : 'none';
+  els.sheet.style.height = `${px}px`;
+  sheetPx = px;
+  els.locate.style.bottom = `${px + 16}px`; // keep the locate button above the sheet
+}
+function snapNearest(px) {
+  return snapPoints().reduce((a, b) => (Math.abs(b - px) < Math.abs(a - px) ? b : a));
+}
+// state: 'collapsed' | 'peek'(=mid) | 'open'(=full)
+function setSheet(state) {
+  const s = snapPoints();
+  applySheet(state === 'open' ? s[2] : state === 'collapsed' ? s[0] : s[1], true);
+  setTimeout(() => map.invalidateSize(), 320);
+}
+
+let drag = null;
+const ptY = (e) => (e.touches ? e.touches[0].clientY : e.clientY);
+els.handle.addEventListener('pointerdown', (e) => {
+  drag = { y: ptY(e), h: els.sheet.getBoundingClientRect().height, moved: false };
+  els.sheet.style.transition = 'none';
+});
+window.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const dy = drag.y - ptY(e);
+  if (Math.abs(dy) > 4) drag.moved = true;
+  applySheet(drag.h + dy, false);
+  if (e.cancelable) e.preventDefault();
+}, { passive: false });
+window.addEventListener('pointerup', () => {
+  if (!drag) return;
+  const wasTap = !drag.moved;
+  const h = els.sheet.getBoundingClientRect().height;
+  drag = null;
+  if (wasTap) { const s = snapPoints(); applySheet(h >= s[2] - 20 ? s[1] : s[2], true); }
+  else applySheet(snapNearest(h), true);
+  setTimeout(() => map.invalidateSize(), 320);
+});
+// Re-snap on rotate/resize so the sheet stays proportional.
+window.addEventListener('resize', () => { if (sheetPx != null) applySheet(snapNearest(sheetPx), false); });
+// Start at mid once the DOM is ready.
+applySheet(snapPoints()[1], false);
 
 // ---- Geolocation --------------------------------------------------------
 els.locate.addEventListener('click', startLocating);
@@ -182,6 +230,7 @@ function renderList() {
   pickLayer.clearLayers();
   els.detail.hidden = true;
   els.list.hidden = false;
+  els.sheetHead.hidden = false; // restore search/find on the list view
 
   if (!trails.length) {
     els.list.innerHTML = '<div class="empty">No named trails found here.<br>Pan the map to a park and search again.</div>';
@@ -262,10 +311,25 @@ function openTrail(t) {
   selected = t;
   els.list.hidden = true;
   els.detail.hidden = false;
-  setSheet('open');
+  els.sheetHead.hidden = true; // hide search/find while reading a trail (declutter)
+  setSheet('peek'); // mid height so the highlighted trail stays visible on the map
   els.dName.textContent = t.name;
   const cls = { Easy: 'easy', Moderate: 'mod', Hard: 'hard' };
   els.dBanner.className = `dbanner ${cls[t.difficulty]}`;
+  els.dBanner.style.backgroundImage = ''; // reset to gradient; photo fills in if found
+  // Real scenic photo (Wikimedia) around the trail's midpoint; gradient stays if none.
+  const mid = t.points[Math.floor(t.points.length / 2)];
+  const forPhoto = t;
+  fetchTrailPhoto(mid[0], mid[1]).then((src) => {
+    if (selected !== forPhoto || !src) return;
+    const img = new Image();
+    img.onload = () => {
+      if (selected !== forPhoto) return;
+      els.dBanner.style.backgroundImage = `url("${src}")`;
+      els.dBanner.classList.add('has-photo');
+    };
+    img.src = src;
+  }).catch(() => {});
   els.dBadge.className = `badge ${cls[t.difficulty]}`;
   els.dBadge.textContent = t.difficulty;
   els.dType.textContent = trailType(t.tags);
@@ -299,7 +363,8 @@ function openTrail(t) {
     L.polyline(seg, { color: '#c02a3b', weight: 4 }).addTo(pickLayer);
     seg.forEach((p) => b.push(p));
   });
-  if (b.length) map.fitBounds(b, { padding: [50, 50] });
+  // Fit the trail into the map area that's visible above the sheet.
+  if (b.length) map.fitBounds(b, { paddingTopLeft: [30, 70], paddingBottomRight: [30, (sheetPx || 300) + 20] });
   updateOnTrail();
 }
 
