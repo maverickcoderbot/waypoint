@@ -120,33 +120,38 @@ function isNatureTrail(tags = {}) {
  * Returns [{ id, name, points:[[lat,lon]...], km, difficulty, tags }] sorted by distance-ish.
  */
 async function fetchTrailsNear(lat, lon, radius = 20000, fetchImpl = fetch, maxResults = 150) {
-  // Keep the query lean (heavy multi-clause queries make public mirrors stall).
-  // We only drop obvious sidewalks/crossings at the source; isNatureTrail()
-  // does the finer scenic-vs-industrial call on the results. cycleway catches
-  // greenways / rail-trails / multi-use paths.
+  // Keep the payload light so even slow public mirrors finish in time. We
+  // deliberately DON'T query cycleway here: in a metro it triples the download
+  // (mostly urban bike lanes we'd filter out anyway) and stalls slow mirrors.
+  // path/footway/track/bridleway + route=hiking already yields ~200 trails at
+  // 24 km. isNatureTrail() does the scenic-vs-industrial call on the results.
   const a = `(around:${radius},${lat},${lon})`;
   const query = `
     [out:json][timeout:30];
     (
-      way["highway"~"^(path|footway|cycleway|track|bridleway)$"]["name"]["footway"!~"sidewalk|crossing"]${a};
+      way["highway"~"^(path|footway|track|bridleway)$"]["name"]["footway"!~"sidewalk|crossing"]${a};
       way["route"="hiking"]["name"]${a};
     );
     out geom;`;
 
+  // Two passes over the mirror list: public Overpass instances frequently 429 /
+  // 504 under load, and a second attempt often lands on one that has recovered.
   let data = null, lastErr = null;
-  for (const ep of OVERPASS_ENDPOINTS) {
-    try {
-      const res = await fetchWithTimeout(fetchImpl, ep, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(query),
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      data = await res.json();
-      break;
-    } catch (e) {
-      // Timeouts surface as AbortError; treat like any other mirror failure.
-      lastErr = e;
+  for (let attempt = 0; attempt < 2 && !data; attempt++) {
+    for (const ep of OVERPASS_ENDPOINTS) {
+      try {
+        const res = await fetchWithTimeout(fetchImpl, ep, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'data=' + encodeURIComponent(query),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        data = await res.json();
+        break;
+      } catch (e) {
+        // Timeouts surface as AbortError; treat like any other mirror failure.
+        lastErr = e;
+      }
     }
   }
   if (!data) throw lastErr || new Error('Overpass unreachable');
