@@ -27,10 +27,23 @@ const els = {
   locate: $('locate'), find: $('findBtn'), status: $('status'), list: $('list'),
   sheet: $('sheet'), handle: $('sheetHandle'), detail: $('detail'), back: $('backBtn'),
   dName: $('dName'), dStats: $('dStats'), onTrail: $('onTrail'), wx: $('wx'),
+  hero: $('hero'), heroGo: $('heroGo'), heroSkip: $('heroSkip'), heroBrowse: $('heroBrowse'),
 };
 
 let trails = [];      // last search results
 let selected = null;  // currently opened trail
+let autoFind = false; // find trails automatically once the first GPS fix lands
+
+// ---- Hero landing -------------------------------------------------------
+function dismissHero() {
+  if (!els.hero) return;
+  els.hero.classList.add('gone');
+  // Leaflet sized itself under the hero; recompute once it's out of the way.
+  setTimeout(() => { map.invalidateSize(); els.hero.hidden = true; }, 520);
+}
+els.heroGo.addEventListener('click', () => { autoFind = true; dismissHero(); startLocating(); });
+els.heroSkip.addEventListener('click', dismissHero);
+els.heroBrowse.addEventListener('click', dismissHero);
 
 // ---- Bottom sheet expand/collapse --------------------------------------
 function setSheet(state) { els.sheet.dataset.state = state; }
@@ -65,6 +78,7 @@ function onPos(pos) {
     map.setView(mePos, 15);
     loadWeather(lat, lon);
     setStatus('Located. Now find trails near you.');
+    if (autoFind) { autoFind = false; findTrails(); }
   } else {
     meMarker.setLatLng(mePos);
     meAccuracy.setLatLng(mePos).setRadius(accuracy);
@@ -123,9 +137,10 @@ function renderList() {
 
   // …and list them in the sheet.
   const cls = { Easy: 'easy', Moderate: 'mod', Hard: 'hard' };
+  const thumbSvg = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M12 4l5 9H7l5-9z" fill="#fff" fill-opacity=".92"/><path d="M3 20l4-7 3 4 3-6 4 9" stroke="#fff" stroke-opacity=".85" stroke-width="1.6" fill="none" stroke-linejoin="round"/></svg>';
   els.list.innerHTML = trails.map((t, i) => `
     <div class="card" data-i="${i}">
-      <div class="pin">🥾</div>
+      <div class="thumb ${cls[t.difficulty]}">${thumbSvg}</div>
       <div class="meta">
         <div class="nm">${esc(t.name)}</div>
         <div class="sub">${t.km} km · ${t.distToUserKm} km away</div>

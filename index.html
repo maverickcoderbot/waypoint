@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#1c2b22" />
+  <meta name="theme-color" content="#123a2b" />
   <title>Waypoint — free trail finder</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
@@ -15,9 +15,40 @@
 <body>
   <div id="map"></div>
 
+  <!-- Immersive landing hero (dismisses into the map) -->
+  <section class="hero" id="hero">
+    <div class="hero-bg"></div>
+    <svg class="hero-ridge" viewBox="0 0 1440 320" preserveAspectRatio="none" aria-hidden="true">
+      <path fill="#0f3627" fill-opacity="0.9" d="M0,224 L120,208 L280,256 L440,176 L620,240 L820,160 L1020,232 L1220,184 L1440,240 L1440,320 L0,320 Z"/>
+      <path fill="#0a2419" d="M0,272 L200,240 L400,288 L640,232 L880,288 L1120,248 L1340,296 L1440,272 L1440,320 L0,320 Z"/>
+    </svg>
+
+    <div class="hero-nav">
+      <div class="logo">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 3l6.5 11.5H5.5L12 3z" fill="#c7f24e"/><path d="M8.2 14.5l3.8-6.7 3.8 6.7" stroke="#0f2417" stroke-width="1.4" fill="none"/></svg>
+        Waypoint
+      </div>
+      <button class="hero-skip" id="heroSkip">Explore the map</button>
+    </div>
+
+    <div class="hero-body">
+      <h1>Find your next <em>trail</em></h1>
+      <p class="tag">Real hiking trails around you, live GPS on the path, and free forever.</p>
+      <div class="hero-cta">
+        <span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+        <span class="lbl">Trails near me</span>
+        <button class="go" id="heroGo">Find trails</button>
+      </div>
+      <div class="hero-alt"><button id="heroBrowse">Browse the map instead →</button></div>
+    </div>
+  </section>
+
   <!-- Floating top bar -->
   <header class="topbar">
-    <div class="brand"><span class="dot"></span> Waypoint</div>
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3l6.5 11.5H5.5L12 3z" fill="#2b7a3f"/><path d="M8.2 14.5l3.8-6.7 3.8 6.7" stroke="#fff" stroke-width="1.4" fill="none"/></svg>
+      Waypoint
+    </div>
     <div class="wx" id="wx" hidden></div>
   </header>
 
@@ -30,7 +61,7 @@
   <section class="sheet" id="sheet" data-state="peek">
     <div class="sheet-handle" id="sheetHandle"></div>
     <div class="sheet-head">
-      <button id="findBtn" class="primary">Find trails near here</button>
+      <button id="findBtn" class="primary"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.2-3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Find trails near here</button>
       <div class="status" id="status">Tap the crosshair to locate yourself, then find trails.</div>
     </div>
     <div class="list" id="list"></div>
