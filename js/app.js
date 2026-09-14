@@ -136,21 +136,33 @@ function onPosErr(err) {
 // ---- Find trails --------------------------------------------------------
 els.find.addEventListener('click', () => findTrails());
 
+// Search radius tiers (metres). Start close; if nothing turns up, widen the
+// net so sparse suburban/rural spots still return something.
+const SEARCH_RADII = [10000, 25000, 50000];
+
 /* Find trails around an explicit {lat,lon,label}, else the user's GPS, else
- * the current map center. */
+ * the current map center. Expands the radius until it finds trails. */
 async function findTrails(center) {
   const lat = center ? center.lat : (mePos ? mePos[0] : map.getCenter().lat);
   const lon = center ? center.lon : (mePos ? mePos[1] : map.getCenter().lng);
   const where = center && center.label ? ` near ${esc(center.label)}` : '';
   els.find.disabled = true;
-  setStatus(`Searching OpenStreetMap for trails${where}… <span class="spin"></span>`);
   setSheet('open');
   try {
-    trails = await fetchTrailsNear(lat, lon, 7000);
+    let usedKm = 0;
+    for (let i = 0; i < SEARCH_RADII.length; i++) {
+      const km = SEARCH_RADII[i] / 1000;
+      setStatus(i === 0
+        ? `Searching for trails${where}… <span class="spin"></span>`
+        : `No trails within ${SEARCH_RADII[i - 1] / 1000} km — widening to ${km} km… <span class="spin"></span>`);
+      trails = await fetchTrailsNear(lat, lon, SEARCH_RADII[i]);
+      usedKm = km;
+      if (trails.length) break;
+    }
     renderList();
     setStatus(trails.length
-      ? `${trails.length} trails within ~7 km${where}.`
-      : `No scenic trails found${where}. Try another spot.`);
+      ? `${trails.length} trails within ~${usedKm} km${where}.`
+      : `No scenic trails found within ${usedKm} km${where}. Try another area.`);
   } catch (e) {
     setStatus('Trail search failed (servers busy). Try again in a moment.');
   } finally {
