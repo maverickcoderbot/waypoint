@@ -254,6 +254,17 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 .savedbar:active{background:#eef2ee}
 .ontrail{background:#e7f4ec;border:1px solid #bfe2ca;border-radius:16px;padding:14px;font-size:14px;color:var(--text)}
 .ontrail b{color:var(--green-deep)}
+.ontrail.alert{background:#fbe0dd;border-color:#e79a8f;color:#7a231b;animation:offpulse 1s ease-in-out 3}
+.ontrail.alert b{color:#9a2016}
+@keyframes offpulse{0%,100%{box-shadow:0 0 0 0 rgba(192,57,47,0)}50%{box-shadow:0 0 0 4px rgba(192,57,47,.18)}}
+/* Off-trail alerts toggle */
+.alerttoggle{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:10px;
+  padding:11px;border-radius:999px;font:inherit;font-weight:650;font-size:14px;cursor:pointer;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--muted);
+  transition:background .15s,color .15s,border-color .15s}
+.alerttoggle svg{flex:none}
+.alerttoggle:active{transform:translateY(1px)}
+.alerttoggle.on{background:#e7f4ec;border-color:#bfe2ca;color:var(--green-deep)}
 .empty{color:var(--muted);text-align:center;padding:30px 14px;font-size:14px}
 .spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--green);
   border-radius:50%;display:inline-block;vertical-align:-3px;animation:sp .8s linear infinite}

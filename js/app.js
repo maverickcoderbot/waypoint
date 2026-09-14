@@ -32,7 +32,7 @@ const els = {
   hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
   placeForm: $('placeForm'), placeInput: $('placeInput'), sheetHead: $('sheetHead'),
-  dDownload: $('dDownload'), savedBtn: $('savedBtn'),
+  dDownload: $('dDownload'), savedBtn: $('savedBtn'), alertToggle: $('alertToggle'),
 };
 
 let trails = [];      // last search results
@@ -484,6 +484,7 @@ function openTrail(t) {
   els.dDownload.disabled = false;
   isSaved(t.id).then(setDownloadState);
   locateShowsTrail = true; // trail is framed on open; first locate tap goes to "me"
+  offTrailAlerting = false; // reset alert state for the new trail
 
   // Fetch elevation profile in the background (cached by trail id): fills the
   // gain stat and draws the elevation chart. Leaves "—" / no chart if it fails.
@@ -588,8 +589,19 @@ async function showSaved() {
 els.savedBtn.addEventListener('click', showSaved);
 refreshSavedBtn();
 
-/* Snap the user's GPS to the nearest point on the selected trail, and work
- * out how far off-trail they are and how far along the route. */
+// Off-trail alerting. Hysteresis: alert once you're past OFF_THRESHOLD, clear
+// once you're back within ON_THRESHOLD, so it doesn't buzz on the boundary.
+const OFF_THRESHOLD = 50, ON_THRESHOLD = 30;
+let offTrailAlerting = false;
+let offTrailAlertsOn = true;
+function triggerOffTrailAlert() {
+  // Haptic buzz (Android; iOS Safari ignores it). Fully local — works offline.
+  try { navigator.vibrate && navigator.vibrate([300, 120, 300, 120, 300]); } catch {}
+}
+
+/* Snap the user's GPS to the nearest point on the selected trail, work out how
+ * far off-trail they are and how far along the route, and fire an off-trail
+ * alert when they stray (no network needed). */
 function updateOnTrail() {
   if (!selected) return;
   if (!mePos) { els.onTrail.hidden = true; return; }
@@ -604,12 +616,35 @@ function updateOnTrail() {
   for (let i = 0; i < best.idx; i++) along += haversine(flat[i], flat[i + 1]);
   const pct = Math.round((along / selected.meters) * 100);
   const off = Math.round(best.d);
-  const onIt = off <= 30;
+  const onIt = off <= ON_THRESHOLD;
+
+  if (offTrailAlertsOn && off > OFF_THRESHOLD && !offTrailAlerting) {
+    offTrailAlerting = true;
+    triggerOffTrailAlert();
+  } else if (off <= ON_THRESHOLD && offTrailAlerting) {
+    offTrailAlerting = false; // back on track
+  }
+
   els.onTrail.hidden = false;
-  els.onTrail.innerHTML = onIt
-    ? `<b>You're on the trail.</b> About <b>${pct}%</b> along · ${(along/1000).toFixed(2)} km in, ${((selected.meters-along)/1000).toFixed(2)} km to go.`
-    : `You're <b>${off} m</b> from <b>${esc(selected.name)}</b> (nearest point ~${pct}% along). Head toward the red line.`;
+  els.onTrail.className = 'ontrail' + (offTrailAlerting ? ' alert' : '');
+  if (onIt) {
+    els.onTrail.innerHTML = `<b>You're on the trail.</b> About <b>${pct}%</b> along · ${(along / 1000).toFixed(2)} km in, ${((selected.meters - along) / 1000).toFixed(2)} km to go.`;
+  } else if (offTrailAlerting) {
+    els.onTrail.innerHTML = `⚠️ <b>Off trail — ${off} m away.</b> Head back toward the red line.`;
+  } else {
+    els.onTrail.innerHTML = `You're <b>${off} m</b> from <b>${esc(selected.name)}</b> (nearest point ~${pct}% along).`;
+  }
 }
+
+// Toggle off-trail alerts on/off.
+els.alertToggle.addEventListener('click', () => {
+  offTrailAlertsOn = !offTrailAlertsOn;
+  els.alertToggle.classList.toggle('on', offTrailAlertsOn);
+  els.alertToggle.setAttribute('aria-pressed', offTrailAlertsOn ? 'true' : 'false');
+  els.alertToggle.querySelector('.lbl').textContent = `Off-trail alerts: ${offTrailAlertsOn ? 'On' : 'Off'}`;
+  if (!offTrailAlertsOn) offTrailAlerting = false;
+  if (selected) updateOnTrail();
+});
 
 // ---- Weather badge ------------------------------------------------------
 async function loadWeather(lat, lon) {
