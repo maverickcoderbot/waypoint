@@ -9,11 +9,30 @@
  * even run it in Node to test (see the module.exports at the bottom).
  */
 
-// Public Overpass endpoints. If one is slow/down we fall through to the next.
+// Public Overpass endpoints. If one is slow/down/rate-limited we fall to the
+// next. Order matters: keep responsive mirrors first. Each attempt is wrapped
+// in a hard client-side timeout so a hung mirror can't freeze the UI.
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
+const OVERPASS_TIMEOUT_MS = 22000; // give up on a single mirror after 22s
+
+/* fetch() with a hard timeout via AbortController — prevents a stalled mirror
+ * from hanging the request (and the spinner) forever. */
+async function fetchWithTimeout(fetchImpl, url, opts = {}, ms = OVERPASS_TIMEOUT_MS) {
+  // Some fetch impls (older Node) may lack AbortController; degrade gracefully.
+  if (typeof AbortController === 'undefined') return fetchImpl(url, opts);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetchImpl(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /* Haversine distance in metres between two [lat, lon] points. */
 function haversine(a, b) {
@@ -101,25 +120,22 @@ function isNatureTrail(tags = {}) {
  * Returns [{ id, name, points:[[lat,lon]...], km, difficulty, tags }] sorted by distance-ish.
  */
 async function fetchTrailsNear(lat, lon, radius = 6000, fetchImpl = fetch) {
-  // Query is already selective (drops sidewalks/crossings and service tracks
-  // at the source); isNatureTrail() does the finer scenic-vs-industrial call.
+  // Keep the query lean (heavy multi-clause queries make public mirrors stall).
+  // We only drop obvious sidewalks/crossings at the source; isNatureTrail()
+  // does the finer scenic-vs-industrial call on the results.
   const a = `(around:${radius},${lat},${lon})`;
   const query = `
-    [out:json][timeout:50];
+    [out:json][timeout:25];
     (
-      way["highway"="path"]["name"]${a};
-      way["highway"="bridleway"]["name"]${a};
-      way["highway"="footway"]["name"]["footway"!~"sidewalk|crossing"]${a};
-      way["highway"="track"]["name"]["service"!~"."]${a};
+      way["highway"~"^(path|footway|track|bridleway)$"]["name"]["footway"!~"sidewalk|crossing"]${a};
       way["route"="hiking"]["name"]${a};
-      way["highway"]["name"]["sac_scale"]${a};
     );
     out geom;`;
 
   let data = null, lastErr = null;
   for (const ep of OVERPASS_ENDPOINTS) {
     try {
-      const res = await fetchImpl(ep, {
+      const res = await fetchWithTimeout(fetchImpl, ep, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'data=' + encodeURIComponent(query),
@@ -127,7 +143,10 @@ async function fetchTrailsNear(lat, lon, radius = 6000, fetchImpl = fetch) {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       data = await res.json();
       break;
-    } catch (e) { lastErr = e; }
+    } catch (e) {
+      // Timeouts surface as AbortError; treat like any other mirror failure.
+      lastErr = e;
+    }
   }
   if (!data) throw lastErr || new Error('Overpass unreachable');
 
