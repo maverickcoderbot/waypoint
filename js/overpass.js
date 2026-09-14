@@ -248,12 +248,14 @@ async function geocodeOpenMeteo(query, bias = null, fetchImpl = fetch) {
   return pickNearest(cands, bias);
 }
 
-/* Cumulative elevation gain (metres) along a trail's points, via Open-Meteo's
- * free elevation API (no key, CORS-friendly). Samples up to 100 points evenly.
- * Returns null on failure so the UI can just omit it. */
-async function fetchElevationGain(points, fetchImpl = fetch) {
+/* Elevation profile along a trail via Open-Meteo's free elevation API (no key,
+ * CORS-friendly). Samples up to 80 points evenly and returns:
+ *   { elevations:[m...], dists:[cumulative m...], gain:m }
+ * enough to both show total gain and draw the elevation-vs-distance chart.
+ * Returns null on failure so the UI can omit it. */
+async function fetchElevationProfile(points, fetchImpl = fetch) {
   if (!Array.isArray(points) || points.length < 2) return null;
-  const N = Math.min(100, points.length);
+  const N = Math.min(80, points.length);
   const step = (points.length - 1) / (N - 1);
   const samp = [];
   for (let i = 0; i < N; i++) samp.push(points[Math.round(i * step)]);
@@ -264,9 +266,11 @@ async function fetchElevationGain(points, fetchImpl = fetch) {
   if (!res.ok) throw new Error('elevation HTTP ' + res.status);
   const el = (await res.json()).elevation;
   if (!Array.isArray(el) || el.length < 2) return null;
+  const dists = [0];
+  for (let i = 1; i < samp.length; i++) dists.push(dists[i - 1] + haversine(samp[i - 1], samp[i]));
   let gain = 0;
   for (let i = 1; i < el.length; i++) { const d = el[i] - el[i - 1]; if (d > 0) gain += d; }
-  return gain;
+  return { elevations: el, dists, gain };
 }
 
 /* A scenic photo near [lat,lon] from Wikimedia Commons (free, no key, CORS via
@@ -319,5 +323,5 @@ function describeWeather(code) {
 
 // Let Node import these for testing; harmless in the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversine, pathLength, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationGain, fetchTrailPhotos };
+  module.exports = { haversine, pathLength, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos };
 }

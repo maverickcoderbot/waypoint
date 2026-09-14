@@ -28,7 +28,7 @@ const els = {
   sheet: $('sheet'), handle: $('sheetHandle'), detail: $('detail'), back: $('backBtn'),
   dName: $('dName'), dStats: $('dStats'), onTrail: $('onTrail'), wx: $('wx'),
   dBadge: $('dBadge'), dType: $('dType'), dDirections: $('dDirections'),
-  dChips: $('dChips'), dTrack: $('dTrack'), dDots: $('dDots'), dCount: $('dCount'),
+  dChips: $('dChips'), dTrack: $('dTrack'), dDots: $('dDots'), dCount: $('dCount'), dElev: $('dElev'),
   hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
   placeForm: $('placeForm'), placeInput: $('placeInput'), sheetHead: $('sheetHead'),
@@ -353,10 +353,34 @@ els.dTrack.addEventListener('scroll', () => {
   if (!els.dCount.hidden && n) els.dCount.textContent = `${i + 1}/${n}`;
 });
 
+// Render an elevation-vs-distance profile chart (SVG area + line).
+function renderElevation(prof) {
+  const el = prof && prof.elevations;
+  if (!el || el.length < 2) { els.dElev.hidden = true; return; }
+  const W = 100, H = 34;
+  const min = Math.min(...el), max = Math.max(...el), range = (max - min) || 1;
+  const total = prof.dists[prof.dists.length - 1] || 1;
+  const pts = el.map((e, i) => [
+    (prof.dists[i] / total) * W,
+    H - ((e - min) / range) * H,
+  ]);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const area = `${line} L${W},${H} L0,${H} Z`;
+  const ft = (m) => Math.round(m * 3.281);
+  els.dElev.innerHTML = `
+    <div class="elev-head"><span>Elevation</span><span>${ft(min)}–${ft(max)} ft</span></div>
+    <svg class="elev-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <path class="elev-area" d="${area}"/><path class="elev-line" d="${line}"/>
+    </svg>
+    <div class="elev-axis"><span>0</span><span>${(total / 1000).toFixed(1)} km</span></div>`;
+  els.dElev.hidden = false;
+}
+
 function openTrail(t) {
   selected = t;
   els.list.hidden = true;
   els.detail.hidden = false;
+  els.dElev.hidden = true; // clear previous trail's chart until this one loads
   els.sheetHead.hidden = true; // hide search/find while reading a trail (declutter)
   setSheet('peek'); // mid height so the highlighted trail stays visible on the map
   els.dName.textContent = t.name;
@@ -386,12 +410,14 @@ function openTrail(t) {
   const head = t.points[0];
   els.dDirections.href = `https://www.google.com/maps/dir/?api=1&destination=${head[0]},${head[1]}&travelmode=driving`;
 
-  // Fetch elevation gain in the background (cached by trail id); leave "—" if it fails.
+  // Fetch elevation profile in the background (cached by trail id): fills the
+  // gain stat and draws the elevation chart. Leaves "—" / no chart if it fails.
   const forTrail = t;
-  cached(`elev:${t.id}`, TTL.elev, () => fetchElevationGain(t.points)).then((m) => {
-    if (selected !== forTrail || m == null) return; // user moved on / no data
+  cached(`elevp:${t.id}`, TTL.elev, () => fetchElevationProfile(t.points)).then((prof) => {
+    if (selected !== forTrail || !prof) return; // user moved on / no data
     const gainEl = $('dGain');
-    if (gainEl) gainEl.textContent = `${Math.round((m * 3.281) / 10) * 10} ft`;
+    if (gainEl) gainEl.textContent = `${Math.round((prof.gain * 3.281) / 10) * 10} ft`;
+    renderElevation(prof);
   }).catch(() => {});
 
   // Highlight this trail on the map
