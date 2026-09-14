@@ -18,7 +18,7 @@ const OVERPASS_ENDPOINTS = [
   'https://overpass.private.coffee/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
-const OVERPASS_TIMEOUT_MS = 22000; // give up on a single mirror after 22s
+const OVERPASS_TIMEOUT_MS = 32000; // give up on a single mirror after 32s
 
 /* fetch() with a hard timeout via AbortController — prevents a stalled mirror
  * from hanging the request (and the spinner) forever. */
@@ -119,15 +119,16 @@ function isNatureTrail(tags = {}) {
  * Fetch named trails within `radius` metres of [lat, lon].
  * Returns [{ id, name, points:[[lat,lon]...], km, difficulty, tags }] sorted by distance-ish.
  */
-async function fetchTrailsNear(lat, lon, radius = 6000, fetchImpl = fetch) {
+async function fetchTrailsNear(lat, lon, radius = 20000, fetchImpl = fetch, maxResults = 150) {
   // Keep the query lean (heavy multi-clause queries make public mirrors stall).
   // We only drop obvious sidewalks/crossings at the source; isNatureTrail()
-  // does the finer scenic-vs-industrial call on the results.
+  // does the finer scenic-vs-industrial call on the results. cycleway catches
+  // greenways / rail-trails / multi-use paths.
   const a = `(around:${radius},${lat},${lon})`;
   const query = `
-    [out:json][timeout:25];
+    [out:json][timeout:30];
     (
-      way["highway"~"^(path|footway|track|bridleway)$"]["name"]["footway"!~"sidewalk|crossing"]${a};
+      way["highway"~"^(path|footway|cycleway|track|bridleway)$"]["name"]["footway"!~"sidewalk|crossing"]${a};
       way["route"="hiking"]["name"]${a};
     );
     out geom;`;
@@ -176,9 +177,9 @@ async function fetchTrailsNear(lat, lon, radius = 6000, fetchImpl = fetch) {
       distToUserKm: +(near / 1000).toFixed(2), tags: t.tags,
     });
   }
-  // Show the more substantial, closer trails first.
+  // Nearest first; cap the list so a dense metro doesn't flood the map/list.
   trails.sort((a, b) => a.distToUserKm - b.distToUserKm || b.km - a.km);
-  return trails;
+  return maxResults > 0 ? trails.slice(0, maxResults) : trails;
 }
 
 /* Geocode a zip/postal code or place name -> { lat, lon, label }.

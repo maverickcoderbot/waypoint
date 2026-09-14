@@ -136,9 +136,10 @@ function onPosErr(err) {
 // ---- Find trails --------------------------------------------------------
 els.find.addEventListener('click', () => findTrails());
 
-// Search radius tiers (metres). Start close; if nothing turns up, widen the
-// net so sparse suburban/rural spots still return something.
-const SEARCH_RADII = [10000, 25000, 50000];
+// Search radius tiers (metres). Start wide enough to cover a metro area (so we
+// surface a comparable set to other trail apps); widen further only if a sparse
+// rural spot still turns up nothing.
+const SEARCH_RADII = [24000, 48000];
 
 /* Find trails around an explicit {lat,lon,label}, else the user's GPS, else
  * the current map center. Expands the radius until it finds trails. */
