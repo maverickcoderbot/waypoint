@@ -170,12 +170,23 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 .badge.hard{color:#8f271e;background:#fbdcd8}
 
 .detail{padding:6px 20px 24px;overflow-y:auto}
-.detail h2{margin:8px 0 16px;font-size:24px;font-weight:800;letter-spacing:-.02em;color:var(--ink)}
 .back{background:none;border:none;color:var(--green);font-weight:700;padding:8px 0;font-size:14px}
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.dhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 2px}
+.dhead h2{margin:0;font-size:23px;font-weight:800;letter-spacing:-.02em;color:var(--ink);
+  line-height:1.15}
+.dhead .badge{flex:none;font-size:12.5px;padding:5px 12px}
+.dtype{color:var(--muted);font-size:13px;font-weight:600;margin:0 0 16px}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
 .stat{background:var(--surface-2);border:1px solid var(--line);border-radius:16px;padding:13px}
 .stat .k{color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
 .stat .v{font-size:20px;font-weight:800;margin-top:4px;color:var(--ink)}
+.stat .sub2{color:var(--muted);font-size:12.5px;font-weight:600;margin-top:1px}
+.dirbtn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;
+  padding:14px;border-radius:999px;background:var(--green);color:#fff;font-weight:700;
+  font-size:15px;text-decoration:none;box-shadow:0 4px 16px rgba(43,122,63,.3);
+  transition:transform .08s,background .15s}
+.dirbtn:active{transform:translateY(1px);background:var(--green-deep)}
+.dirbtn svg{flex:none}
 .ontrail{background:#e7f4ec;border:1px solid #bfe2ca;border-radius:16px;padding:14px;font-size:14px;color:var(--text)}
 .ontrail b{color:var(--green-deep)}
 .empty{color:var(--muted);text-align:center;padding:30px 14px;font-size:14px}

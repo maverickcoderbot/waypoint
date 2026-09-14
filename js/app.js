@@ -27,6 +27,7 @@ const els = {
   locate: $('locate'), find: $('findBtn'), status: $('status'), list: $('list'),
   sheet: $('sheet'), handle: $('sheetHandle'), detail: $('detail'), back: $('backBtn'),
   dName: $('dName'), dStats: $('dStats'), onTrail: $('onTrail'), wx: $('wx'),
+  dBadge: $('dBadge'), dType: $('dType'), dDirections: $('dDirections'),
   hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
   placeForm: $('placeForm'), placeInput: $('placeInput'),
@@ -214,16 +215,54 @@ function renderList() {
 }
 
 // ---- Trail detail + "where am I on the trail" ---------------------------
+
+// Rough hiking time at ~4.5 km/h.
+function fmtTime(km) {
+  const mins = Math.round((km / 4.5) * 60);
+  if (mins < 60) return `${Math.max(5, mins)} min`;
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+// Loop if the ends nearly meet, else an out-and-back.
+function routeType(t) {
+  const p = t.points;
+  if (p.length < 2) return '—';
+  const gap = haversine(p[0], p[p.length - 1]);
+  return gap < Math.max(60, t.meters * 0.08) ? 'Loop' : 'Out & back';
+}
+// Human-friendly surface/type from OSM tags.
+const PAVED = ['asphalt', 'concrete', 'paved', 'paving_stones'];
+const NATURAL = ['ground', 'dirt', 'earth', 'grass', 'gravel', 'fine_gravel',
+  'compacted', 'unpaved', 'sand', 'rock', 'woodchips', 'mud'];
+function trailType(tags = {}) {
+  const s = (tags.surface || '').toLowerCase();
+  if (tags.highway === 'cycleway') return 'Paved greenway';
+  if (PAVED.includes(s)) return 'Paved path';
+  if (NATURAL.includes(s)) return 'Natural surface';
+  if (tags.highway === 'track') return 'Gravel track';
+  if (tags.highway === 'bridleway') return 'Bridle path';
+  return 'Hiking trail';
+}
+
 function openTrail(t) {
   selected = t;
   els.list.hidden = true;
   els.detail.hidden = false;
   setSheet('open');
   els.dName.textContent = t.name;
+  const cls = { Easy: 'easy', Moderate: 'mod', Hard: 'hard' };
+  els.dBadge.className = `badge ${cls[t.difficulty]}`;
+  els.dBadge.textContent = t.difficulty;
+  els.dType.textContent = trailType(t.tags);
+  const mi = (t.km * 0.621).toFixed(1);
   els.dStats.innerHTML = `
-    <div class="stat"><div class="k">Distance</div><div class="v">${t.km} km</div></div>
-    <div class="stat"><div class="k">Difficulty</div><div class="v">${t.difficulty}</div></div>
-    <div class="stat"><div class="k">Miles</div><div class="v">${(t.km * 0.621).toFixed(1)}</div></div>`;
+    <div class="stat"><div class="k">Length</div><div class="v">${t.km} km</div><div class="sub2">${mi} mi</div></div>
+    <div class="stat"><div class="k">Est. time</div><div class="v">${fmtTime(t.km)}</div></div>
+    <div class="stat"><div class="k">Route</div><div class="v">${routeType(t)}</div></div>
+    <div class="stat"><div class="k">Away</div><div class="v">${t.distToUserKm} km</div></div>`;
+  // Directions to the trailhead (first mapped point).
+  const head = t.points[0];
+  els.dDirections.href = `https://www.google.com/maps/dir/?api=1&destination=${head[0]},${head[1]}&travelmode=driving`;
 
   // Highlight this trail on the map
   pickLayer.clearLayers();

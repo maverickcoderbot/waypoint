@@ -172,6 +172,7 @@ async function fetchTrailsNear(lat, lon, radius = 20000, fetchImpl = fetch, maxR
     const points = t.segments.flat();
     if (points.length < 2) continue;
     const meters = t.segments.reduce((s, seg) => s + pathLength(seg), 0);
+    if (meters < 100) continue; // skip degenerate stubs (e.g. a 30 m named fragment)
     const km = meters / 1000;
     // approx distance from the user to the trail's nearest sampled point
     let near = Infinity;
