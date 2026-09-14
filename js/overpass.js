@@ -18,7 +18,7 @@ const OVERPASS_ENDPOINTS = [
   'https://overpass.private.coffee/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
-const OVERPASS_TIMEOUT_MS = 22000; // give up on a single mirror after 22s
+const OVERPASS_TIMEOUT_MS = 32000; // give up on a single mirror after 32s
 
 /* fetch() with a hard timeout via AbortController — prevents a stalled mirror
  * from hanging the request (and the spinner) forever. */
@@ -119,15 +119,16 @@ function isNatureTrail(tags = {}) {
  * Fetch named trails within `radius` metres of [lat, lon].
  * Returns [{ id, name, points:[[lat,lon]...], km, difficulty, tags }] sorted by distance-ish.
  */
-async function fetchTrailsNear(lat, lon, radius = 6000, fetchImpl = fetch) {
+async function fetchTrailsNear(lat, lon, radius = 20000, fetchImpl = fetch, maxResults = 150) {
   // Keep the query lean (heavy multi-clause queries make public mirrors stall).
   // We only drop obvious sidewalks/crossings at the source; isNatureTrail()
-  // does the finer scenic-vs-industrial call on the results.
+  // does the finer scenic-vs-industrial call on the results. cycleway catches
+  // greenways / rail-trails / multi-use paths.
   const a = `(around:${radius},${lat},${lon})`;
   const query = `
-    [out:json][timeout:25];
+    [out:json][timeout:30];
     (
-      way["highway"~"^(path|footway|track|bridleway)$"]["name"]["footway"!~"sidewalk|crossing"]${a};
+      way["highway"~"^(path|footway|cycleway|track|bridleway)$"]["name"]["footway"!~"sidewalk|crossing"]${a};
       way["route"="hiking"]["name"]${a};
     );
     out geom;`;
@@ -176,49 +177,69 @@ async function fetchTrailsNear(lat, lon, radius = 6000, fetchImpl = fetch) {
       distToUserKm: +(near / 1000).toFixed(2), tags: t.tags,
     });
   }
-  // Show the more substantial, closer trails first.
+  // Nearest first; cap the list so a dense metro doesn't flood the map/list.
   trails.sort((a, b) => a.distToUserKm - b.distToUserKm || b.km - a.km);
-  return trails;
+  return maxResults > 0 ? trails.slice(0, maxResults) : trails;
+}
+
+/* From several geocode candidates, pick the one nearest `bias` {lat,lon}.
+ * Without a bias, keep the provider's top hit. This disambiguates codes that
+ * exist in multiple countries (e.g. postal 63043 is both Maryland Heights, MO
+ * and a village in Ukraine) by preferring what's near where the user is. */
+function pickNearest(cands, bias) {
+  if (!cands.length) return null;
+  if (!bias || bias.lat == null || bias.lon == null) return cands[0];
+  let best = cands[0], bd = Infinity;
+  for (const c of cands) {
+    const d = haversine([bias.lat, bias.lon], [c.lat, c.lon]);
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
 }
 
 /* Geocode a zip/postal code or place name -> { lat, lon, label }.
  * Tries Nominatim first (best coverage: addresses, POIs, postcodes), then
  * falls back to Open-Meteo geocoding (very reliable for cities/zips). Both are
- * free and need no API key. Returns null if nothing matches anywhere. */
-async function geocodePlace(q, fetchImpl = fetch) {
+ * free and need no API key. `bias` {lat,lon} disambiguates toward the user's
+ * area. Returns null if nothing matches anywhere. */
+async function geocodePlace(q, bias = null, fetchImpl = fetch) {
   const query = String(q || '').trim();
   if (!query) return null;
-  const viaNominatim = await geocodeNominatim(query, fetchImpl).catch(() => null);
+  const viaNominatim = await geocodeNominatim(query, bias, fetchImpl).catch(() => null);
   if (viaNominatim) return viaNominatim;
-  return geocodeOpenMeteo(query, fetchImpl).catch(() => null);
+  return geocodeOpenMeteo(query, bias, fetchImpl).catch(() => null);
 }
 
 // OpenStreetMap Nominatim. Browsers send a Referer, which its policy accepts.
-async function geocodeNominatim(query, fetchImpl = fetch) {
+async function geocodeNominatim(query, bias = null, fetchImpl = fetch) {
   const isZip = /^\d{4,6}(-\d{3,4})?$/.test(query);
   const params = isZip
     ? `postalcode=${encodeURIComponent(query)}`
     : `q=${encodeURIComponent(query)}`;
-  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&${params}`;
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=0&limit=5&${params}`;
   const res = await fetchWithTimeout(fetchImpl, url, { headers: { Accept: 'application/json' } }, 12000);
   if (!res.ok) throw new Error('nominatim HTTP ' + res.status);
   const arr = await res.json();
   if (!Array.isArray(arr) || !arr.length) return null;
-  const r = arr[0];
-  const label = String(r.display_name || query).split(',').slice(0, 3).join(',').trim();
-  return { lat: +r.lat, lon: +r.lon, label };
+  const cands = arr.map((r) => ({
+    lat: +r.lat, lon: +r.lon,
+    label: String(r.display_name || query).split(',').slice(0, 3).join(',').trim(),
+  }));
+  return pickNearest(cands, bias);
 }
 
 // Open-Meteo geocoding — CORS-friendly, no key, resolves city names and zips.
-async function geocodeOpenMeteo(query, fetchImpl = fetch) {
-  const url = `https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=${encodeURIComponent(query)}`;
+async function geocodeOpenMeteo(query, bias = null, fetchImpl = fetch) {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?count=5&language=en&name=${encodeURIComponent(query)}`;
   const res = await fetchWithTimeout(fetchImpl, url, {}, 12000);
   if (!res.ok) throw new Error('open-meteo geo HTTP ' + res.status);
   const j = await res.json();
-  const g = j.results && j.results[0];
-  if (!g) return null;
-  const label = [g.name, g.admin1, g.country_code].filter(Boolean).join(', ');
-  return { lat: g.latitude, lon: g.longitude, label };
+  if (!j.results || !j.results.length) return null;
+  const cands = j.results.map((g) => ({
+    lat: g.latitude, lon: g.longitude,
+    label: [g.name, g.admin1, g.country_code].filter(Boolean).join(', '),
+  }));
+  return pickNearest(cands, bias);
 }
 
 /* Current + today's weather from Open-Meteo (free, no key). */
@@ -245,5 +266,5 @@ function describeWeather(code) {
 
 // Let Node import these for testing; harmless in the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversine, pathLength, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo };
+  module.exports = { haversine, pathLength, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest };
 }

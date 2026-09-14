@@ -67,9 +67,13 @@ async function searchPlace(q) {
   setSheet('open');
   setStatus(`Finding “${esc(q)}”… <span class="spin"></span>`);
   map.invalidateSize();
+  // Bias geocoding toward where the user is looking (GPS, else map center) so
+  // ambiguous codes resolve to the nearby country, not a same-numbered place abroad.
+  const c = map.getCenter();
+  const bias = mePos ? { lat: mePos[0], lon: mePos[1] } : { lat: c.lat, lon: c.lng };
   let loc;
   try {
-    loc = await geocodePlace(q);
+    loc = await geocodePlace(q, bias);
   } catch {
     setStatus('Place lookup failed. Check your connection and try again.');
     return;
@@ -136,9 +140,10 @@ function onPosErr(err) {
 // ---- Find trails --------------------------------------------------------
 els.find.addEventListener('click', () => findTrails());
 
-// Search radius tiers (metres). Start close; if nothing turns up, widen the
-// net so sparse suburban/rural spots still return something.
-const SEARCH_RADII = [10000, 25000, 50000];
+// Search radius tiers (metres). Start wide enough to cover a metro area (so we
+// surface a comparable set to other trail apps); widen further only if a sparse
+// rural spot still turns up nothing.
+const SEARCH_RADII = [24000, 48000];
 
 /* Find trails around an explicit {lat,lon,label}, else the user's GPS, else
  * the current map center. Expands the radius until it finds trails. */
