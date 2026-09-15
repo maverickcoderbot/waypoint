@@ -34,11 +34,14 @@ const els = {
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
   placeForm: $('placeForm'), placeInput: $('placeInput'), sheetHead: $('sheetHead'),
   dDownload: $('dDownload'), savedBtn: $('savedBtn'), alertToggle: $('alertToggle'),
+  modeSeg: $('modeSeg'),
 };
 
 let trails = [];      // last search results
 let selected = null;  // currently opened trail
 let autoFind = false; // find trails automatically once the first GPS fix lands
+let trailMode = 'walk'; // walk | cycle | vehicle — what kind of route to fetch/show
+let lastCenter = null;  // {lat,lon,label} of the last search, so switching modes re-searches
 
 // ---- Hero landing -------------------------------------------------------
 function dismissHero() {
@@ -209,23 +212,47 @@ function onPosErr(err) {
 // ---- Find trails --------------------------------------------------------
 els.find.addEventListener('click', () => findTrails());
 
+// ---- Travel mode: Walk / Cycle / Vehicle --------------------------------
+// Pick how you're travelling; we fetch and show only that kind of route.
+// Switching modes re-runs the search around wherever you last looked.
+function setMode(mode) {
+  if (mode === trailMode || !MODE_NOUN[mode]) return;
+  trailMode = mode;
+  els.modeSeg.querySelectorAll('.mode').forEach((b) => {
+    const on = b.dataset.mode === mode;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  // Re-search the last spot in the new mode (GPS / map center if none yet).
+  if (lastCenter || mePos || els.hero.hidden) findTrails(lastCenter || undefined);
+}
+els.modeSeg.addEventListener('click', (e) => {
+  const btn = e.target.closest('.mode');
+  if (btn) setMode(btn.dataset.mode);
+});
+
 // Search radius tiers (metres). Start wide enough to cover a metro area (so we
 // surface a comparable set to other trail apps); widen further only if a sparse
 // rural spot still turns up nothing.
 const SEARCH_RADII = [24000, 48000];
 
+// Human noun per mode for status messages ("12 bike routes within ~24 km").
+const MODE_NOUN = { walk: 'trails', cycle: 'bike routes', vehicle: 'off-road routes' };
+
 /* Trail fetch with an IndexedDB cache (stale-while-revalidate): a place you've
  * viewed before returns instantly and still refreshes in the background. */
-async function trailsCached(lat, lon, radius) {
-  const key = `trails:${lat.toFixed(3)},${lon.toFixed(3)}:${radius}`;
+async function trailsCached(lat, lon, radius, mode = trailMode) {
+  // Mode is part of the cache key so the walk/cycle/vehicle tabs never serve
+  // each other's results for the same spot.
+  const key = `trails:${mode}:${lat.toFixed(3)},${lon.toFixed(3)}:${radius}`;
   const hit = await cacheGet(key);
   if (hit && hit.length) {
-    fetchTrailsNear(lat, lon, radius)
+    fetchTrailsNear(lat, lon, radius, fetch, 150, mode)
       .then((fresh) => { if (fresh && fresh.length) cacheSet(key, fresh, TTL.trails); })
       .catch(() => {});
     return { trails: hit, cached: true };
   }
-  const fresh = await fetchTrailsNear(lat, lon, radius);
+  const fresh = await fetchTrailsNear(lat, lon, radius, fetch, 150, mode);
   if (fresh && fresh.length) cacheSet(key, fresh, TTL.trails);
   return { trails: fresh, cached: false };
 }
@@ -235,7 +262,11 @@ async function trailsCached(lat, lon, radius) {
 async function findTrails(center) {
   const lat = center ? center.lat : (mePos ? mePos[0] : map.getCenter().lat);
   const lon = center ? center.lon : (mePos ? mePos[1] : map.getCenter().lng);
-  const where = center && center.label ? ` near ${esc(center.label)}` : '';
+  const label = center && center.label ? center.label : (lastCenter && lastCenter.label);
+  // Remember where we searched so switching Walk/Cycle/Vehicle re-runs here.
+  lastCenter = { lat, lon, label };
+  const where = label ? ` near ${esc(label)}` : '';
+  const noun = MODE_NOUN[trailMode] || 'trails';
   els.find.disabled = true;
   setSheet('open');
   try {
@@ -243,16 +274,16 @@ async function findTrails(center) {
     for (let i = 0; i < SEARCH_RADII.length; i++) {
       const km = SEARCH_RADII[i] / 1000;
       setStatus(i === 0
-        ? `Searching for trails${where}… <span class="spin"></span>`
-        : `No trails within ${SEARCH_RADII[i - 1] / 1000} km — widening to ${km} km… <span class="spin"></span>`);
+        ? `Searching for ${noun}${where}… <span class="spin"></span>`
+        : `No ${noun} within ${SEARCH_RADII[i - 1] / 1000} km — widening to ${km} km… <span class="spin"></span>`);
       const r = await trailsCached(lat, lon, SEARCH_RADII[i]);
       trails = r.trails; fromCache = r.cached; usedKm = km;
       if (trails.length) break;
     }
     renderList();
     setStatus(trails.length
-      ? `${trails.length} trails within ~${usedKm} km${where}${fromCache ? ' · cached' : ''}.`
-      : `No scenic trails found within ${usedKm} km${where}. Try another area.`);
+      ? `${trails.length} ${noun} within ~${usedKm} km${where}${fromCache ? ' · cached' : ''}.`
+      : `No ${noun} found within ${usedKm} km${where}. Try another area or mode.`);
   } catch (e) {
     // Offline or all mirrors down: fall back to whatever the user downloaded.
     const saved = await getSavedTrails();

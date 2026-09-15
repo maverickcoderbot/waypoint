@@ -113,13 +113,21 @@ const NATURE_WORDS = /\b(trail|loop|greenway|nature|preserve|creek|ridge|river|l
 // Words that suggest an industrial/service/utility corridor (unless overridden below).
 const INDUSTRIAL_WORDS = /\b(pipeline|powerline|power\s?line|transmission|substation|utility|sewer|drainage|ditch|levee\s?access|service\s?road|access\s?road|maintenance|loading|dock|plant|refinery|quarry|mine|industrial|parking|driveway|siding|spur\s?track|conveyor)\b/i;
 
-function hasNatureSignal(tags) {
+function hasNatureSignal(tags, mode = 'walk') {
   if (tags.route === 'hiking') return true;
   if (tags.sac_scale || tags.trail_visibility || tags.mtb_scale) return true;
   if (tags.highway === 'path' || tags.highway === 'bridleway') return true;
   if (tags.surface && NATURE_SURFACE.has(tags.surface)) return true;
   if (tags.leisure === 'track' || tags.leisure === 'nature_reserve') return true;
   if (tags.name && NATURE_WORDS.test(tags.name)) return true;
+  // Mode-specific "this counts as a real route" signals. A paved greenway or a
+  // dirt forest road has no natural surface and often no nature word, so on the
+  // cycle/vehicle tabs we accept the route class itself as the signal — that's
+  // what surfaces lakeside multi-use loops and 4x4 tracks.
+  if (mode === 'cycle' && (tags.highway === 'cycleway'
+    || tags.bicycle === 'designated' || tags.route === 'bicycle')) return true;
+  if (mode === 'vehicle' && (tags.highway === 'track' || tags.tracktype
+    || tags['4wd_only'] === 'yes' || tags.route === 'road')) return true;
   return false;
 }
 
@@ -138,28 +146,78 @@ function isIndustrialOrUrban(tags) {
   return false;
 }
 
-/* Keep only scenic/nature trails: reject industrial/urban, then require a signal. */
-function isNatureTrail(tags = {}) {
+/* Keep only scenic/nature routes: reject industrial/urban, then require a signal
+ * appropriate to the chosen travel mode (walk / cycle / vehicle). */
+function isNatureTrail(tags = {}, mode = 'walk') {
   if (isIndustrialOrUrban(tags)) return false;
-  return hasNatureSignal(tags);
+  return hasNatureSignal(tags, mode);
 }
+
+/* ---------------------------------------------------------------------------
+ * Travel modes.
+ *
+ * The feature: let people pick how they're travelling and only fetch/show the
+ * ways that make sense for it. Each mode contributes its own set of Overpass
+ * `way[...]` selectors (unioned into one query) and reuses isNatureTrail() with
+ * the matching `mode` so the scenic filter stays honest per mode.
+ *
+ *   walk    — foot trails: path/footway/track/bridleway + route=hiking
+ *   cycle   — bike routes: cycleway + bike-designated paths/tracks + route=bicycle
+ *             (this is what surfaces paved lakeside multi-use loops)
+ *   vehicle — drivable off-road: dirt/gravel tracks + 4x4 routes
+ *
+ * `key` also namespaces the trail cache so switching tabs never serves the
+ * wrong mode's results.
+ * ------------------------------------------------------------------------- */
+const TRAIL_MODES = {
+  walk: {
+    key: 'walk',
+    label: 'Walk',
+    // Named foot ways, minus sidewalks/crossings, plus signed hiking routes.
+    selectors: (a) => [
+      `way["highway"~"^(path|footway|track|bridleway)$"]["name"]["footway"!~"sidewalk|crossing"]${a};`,
+      `way["route"="hiking"]["name"]${a};`,
+    ],
+  },
+  cycle: {
+    key: 'cycle',
+    label: 'Cycle',
+    // Dedicated cycleways/greenways, bike-designated paths & tracks, and signed
+    // cycle routes. Exclude anything explicitly bikes-not-allowed.
+    selectors: (a) => [
+      `way["highway"="cycleway"]["name"]["bicycle"!~"no"]${a};`,
+      `way["highway"~"^(path|footway|track)$"]["bicycle"~"^(yes|designated)$"]["name"]${a};`,
+      `way["route"="bicycle"]["name"]${a};`,
+    ],
+  },
+  vehicle: {
+    key: 'vehicle',
+    label: 'Vehicle',
+    // Drivable unpaved routes: named tracks open to motor vehicles, 4x4-only
+    // ways, and signed scenic drives. Keep out private/no-access tracks.
+    selectors: (a) => [
+      `way["highway"="track"]["name"]["motor_vehicle"!~"^(no|private)$"]["access"!~"^(private|no)$"]${a};`,
+      `way["highway"~"^(path|track|unclassified)$"]["4wd_only"="yes"]["name"]${a};`,
+      `way["route"="road"]["name"]${a};`,
+    ],
+  },
+};
+function resolveMode(mode) { return TRAIL_MODES[mode] || TRAIL_MODES.walk; }
 
 /*
  * Fetch named trails within `radius` metres of [lat, lon].
  * Returns [{ id, name, points:[[lat,lon]...], km, difficulty, tags }] sorted by distance-ish.
  */
-async function fetchTrailsNear(lat, lon, radius = 20000, fetchImpl = fetch, maxResults = 150) {
-  // Keep the payload light so even slow public mirrors finish in time. We
-  // deliberately DON'T query cycleway here: in a metro it triples the download
-  // (mostly urban bike lanes we'd filter out anyway) and stalls slow mirrors.
-  // path/footway/track/bridleway + route=hiking already yields ~200 trails at
-  // 24 km. isNatureTrail() does the scenic-vs-industrial call on the results.
+async function fetchTrailsNear(lat, lon, radius = 20000, fetchImpl = fetch, maxResults = 150, mode = 'walk') {
+  // Keep each mode's payload light so even slow public mirrors finish in time.
+  // The selectors for the chosen mode are unioned into a single query;
+  // isNatureTrail(tags, mode) then does the scenic-vs-industrial call per mode.
+  const cfg = resolveMode(mode);
   const a = `(around:${radius},${lat},${lon})`;
   const query = `
     [out:json][timeout:30];
     (
-      way["highway"~"^(path|footway|track|bridleway)$"]["name"]["footway"!~"sidewalk|crossing"]${a};
-      way["route"="hiking"]["name"]${a};
+      ${cfg.selectors(a).join('\n      ')}
     );
     out geom;`;
 
@@ -189,7 +247,7 @@ async function fetchTrailsNear(lat, lon, radius = 20000, fetchImpl = fetch, maxR
   const byName = new Map();
   for (const el of data.elements) {
     if (!el.geometry || !el.tags || !el.tags.name) continue;
-    if (!isNatureTrail(el.tags)) continue; // scenic/nature only — skip industrial/urban
+    if (!isNatureTrail(el.tags, mode)) continue; // scenic/nature only, per travel mode
     const pts = el.geometry.map((g) => [g.lat, g.lon]);
     const key = el.tags.name;
     if (!byName.has(key)) byName.set(key, { id: el.id, name: key, segments: [], tags: el.tags });
@@ -383,5 +441,5 @@ function describeWeather(code) {
 
 // Let Node import these for testing; harmless in the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversine, pathLength, orderSegments, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos, fetchConditions };
+  module.exports = { haversine, pathLength, orderSegments, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos, fetchConditions, TRAIL_MODES, resolveMode };
 }
