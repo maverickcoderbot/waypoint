@@ -35,6 +35,8 @@ const els = {
   placeForm: $('placeForm'), placeInput: $('placeInput'), sheetHead: $('sheetHead'),
   dDownload: $('dDownload'), savedBtn: $('savedBtn'), alertToggle: $('alertToggle'),
   modeSeg: $('modeSeg'),
+  trailNow: $('trailNow'), trailNowOpen: $('trailNowOpen'),
+  trailNowName: $('trailNowName'), trailNowDismiss: $('trailNowDismiss'),
 };
 
 let trails = [];      // last search results
@@ -42,6 +44,12 @@ let selected = null;  // currently opened trail
 let autoFind = false; // find trails automatically once the first GPS fix lands
 let trailMode = 'walk'; // walk | cycle | vehicle — what kind of route to fetch/show
 let lastCenter = null;  // {lat,lon,label} of the last search, so switching modes re-searches
+
+// "Am I on a trail?" auto-detection state.
+let trailNowT = null;      // trail the user is currently standing on (if any)
+let detectBusy = false;    // a detection fetch is in flight
+let lastDetectPt = null;   // where we last ran detection (throttle by distance)
+let dismissedTrailId = null; // banner the user dismissed — don't nag about it again
 
 // ---- Hero landing -------------------------------------------------------
 function dismissHero() {
@@ -200,6 +208,7 @@ function onPos(pos) {
     meAccuracy.setLatLng(mePos).setRadius(accuracy);
   }
   if (selected) updateOnTrail(); // refresh "where am I on the trail" live
+  else maybeDetectTrail();       // otherwise, spot the trail they're standing on
 }
 
 function onPosErr(err) {
@@ -501,6 +510,7 @@ function renderConditions(c, t) {
 
 function openTrail(t) {
   selected = t;
+  els.trailNow.hidden = true; // the detection banner is redundant once a trail is open
   els.list.hidden = true;
   els.detail.hidden = false;
   els.dElev.hidden = true; // clear previous trail's chart until this one loads
@@ -699,6 +709,60 @@ els.alertToggle.addEventListener('click', () => {
   els.alertToggle.querySelector('.lbl').textContent = `Off-trail alerts: ${offTrailAlertsOn ? 'On' : 'Off'}`;
   if (!offTrailAlertsOn) offTrailAlerting = false;
   if (selected) updateOnTrail();
+});
+
+// ---- "You're on a trail" auto-detection --------------------------------
+// As GPS updates, if you're not already reading a trail, check whether you're
+// standing on one and offer to draw the whole route. Detection is mode-agnostic
+// (walk/cycle/vehicle) and throttled by distance so it doesn't hammer Overpass.
+const DETECT_RADIUS = 2000;   // metres to search around the user for candidates
+const DETECT_ON_TRAIL = 35;   // within this many metres of a route = "on it"
+const DETECT_MOVE_MIN = 150;  // re-detect only after moving this far
+
+async function maybeDetectTrail() {
+  if (selected || !mePos || detectBusy) return;
+  // Throttle: skip if we already checked and the user has barely moved.
+  if (lastDetectPt && haversine(mePos, lastDetectPt) < DETECT_MOVE_MIN) return;
+  detectBusy = true;
+  lastDetectPt = mePos.slice();
+  const [lat, lon] = mePos;
+  try {
+    const r = await trailsCached(lat, lon, DETECT_RADIUS, 'any');
+    if (selected) return; // user opened a trail while we were fetching
+    let best = null, bestD = Infinity;
+    for (const t of r.trails) {
+      const d = distanceToPath(mePos, t.points);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (best && bestD <= DETECT_ON_TRAIL) showTrailNow(best);
+    else hideTrailNow();
+  } catch { /* detection is best-effort; ignore failures */ }
+  finally { detectBusy = false; }
+}
+
+function showTrailNow(t) {
+  if (t.id === dismissedTrailId) return;          // user waved this one off
+  if (trailNowT && trailNowT.id === t.id && !els.trailNow.hidden) return; // no flicker
+  trailNowT = t;
+  els.trailNowName.textContent = t.name;
+  els.trailNow.hidden = false;
+}
+function hideTrailNow() { els.trailNow.hidden = true; trailNowT = null; }
+
+// Tap the banner → open the full trail (draws the entire route + stats).
+els.trailNowOpen.addEventListener('click', () => {
+  if (!trailNowT) return;
+  const t = trailNowT;
+  // Make sure Back returns somewhere sensible even if no search ran yet.
+  if (!trails.some((x) => x.id === t.id)) trails = [t, ...trails];
+  els.trailNow.hidden = true;
+  setSheet('peek');
+  openTrail(t);
+});
+// Dismiss → hide and don't re-prompt for this same trail.
+els.trailNowDismiss.addEventListener('click', () => {
+  if (trailNowT) dismissedTrailId = trailNowT.id;
+  hideTrailNow();
 });
 
 // ---- Weather badge ------------------------------------------------------

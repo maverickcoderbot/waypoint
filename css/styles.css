@@ -109,6 +109,26 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 .fab.locate{right:16px;bottom:calc(var(--sheet-peek) + 20px)}
 .fab.locate.on{background:var(--green);color:#fff;border-color:var(--green)}
 
+/* "You're on a trail" auto-detect banner — floats below the topbar */
+.trailnow{position:fixed;z-index:620;left:12px;right:12px;
+  top:calc(env(safe-area-inset-top) + 58px);max-width:520px;margin:0 auto;
+  display:flex;align-items:stretch;gap:6px;
+  background:var(--green);color:#fff;border-radius:16px;
+  box-shadow:0 8px 26px rgba(20,40,28,.28);animation:tnPop .28s cubic-bezier(.2,.7,.3,1)}
+@keyframes tnPop{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+.tn-main{flex:1;min-width:0;display:flex;align-items:center;gap:11px;cursor:pointer;
+  appearance:none;border:0;background:none;color:inherit;font:inherit;text-align:left;
+  padding:11px 6px 11px 14px;border-radius:16px 0 0 16px}
+.tn-main:active{background:rgba(0,0,0,.12)}
+.tn-ico{flex:none;color:var(--lime)}
+.tn-txt{display:flex;flex-direction:column;line-height:1.2;min-width:0}
+.tn-txt b{font-size:13px;font-weight:800}
+.tn-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tn-cta{flex:none;margin-left:auto;font-size:13px;font-weight:800;color:var(--lime);white-space:nowrap}
+.tn-x{flex:none;appearance:none;border:0;cursor:pointer;color:#fff;background:none;
+  font-size:15px;padding:0 14px;border-radius:0 16px 16px 0;opacity:.85}
+.tn-x:active{opacity:1;background:rgba(0,0,0,.12)}
+
 /* ===========================================================================
  * BOTTOM SHEET — trail list + detail
  * ========================================================================= */

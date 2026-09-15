@@ -61,6 +61,16 @@
     <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm0-6a1 1 0 011 1v1.06A8 8 0 0118.94 11H20a1 1 0 110 2h-1.06A8 8 0 0113 18.94V20a1 1 0 11-2 0v-1.06A8 8 0 015.06 13H4a1 1 0 110-2h1.06A8 8 0 0111 5.06V4a1 1 0 011-1z" fill="currentColor"/></svg>
   </button>
 
+  <!-- "You're on a trail" banner (auto-detected from GPS) -->
+  <div class="trailnow" id="trailNow" hidden>
+    <button class="tn-main" id="trailNowOpen" type="button">
+      <svg class="tn-ico" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6.3 7-11a7 7 0 10-14 0c0 4.7 7 11 7 11z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.5" fill="currentColor"/></svg>
+      <span class="tn-txt"><b>You're on a trail</b><span class="tn-name" id="trailNowName">—</span></span>
+      <span class="tn-cta">Show full trail ›</span>
+    </button>
+    <button class="tn-x" id="trailNowDismiss" type="button" aria-label="Dismiss">✕</button>
+  </div>
+
   <!-- Bottom sheet: trail list / detail -->
   <section class="sheet" id="sheet" data-state="peek">
     <div class="sheet-handle" id="sheetHandle"></div>
