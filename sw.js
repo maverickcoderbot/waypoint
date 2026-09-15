@@ -3,7 +3,7 @@
  * an area — a later version can pre-cache tiles for offline hikes. */
 /* Bump this version on every release so the service worker re-installs and
  * evicts the old cached app shell — otherwise cache-first serves stale UI. */
-const CACHE = 'waypoint-v19';
+const CACHE = 'waypoint-v20';
 const SHELL = [
   './', './index.html', './css/styles.css', './js/app.js', './js/overpass.js', './js/cache.js',
   './manifest.webmanifest',

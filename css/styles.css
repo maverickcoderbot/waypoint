@@ -176,7 +176,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 
 .detail{padding:6px 20px 24px;overflow-y:auto}
 .back{background:none;border:none;color:var(--green);font-weight:700;padding:8px 0;font-size:14px}
-.dhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 2px}
+.dhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 2px;cursor:pointer}
 .dhead h2{margin:0;font-size:23px;font-weight:800;letter-spacing:-.02em;color:var(--ink);
   line-height:1.15}
 .dhead .badge{flex:none;font-size:12.5px;padding:5px 12px}

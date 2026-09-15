@@ -29,7 +29,7 @@ const els = {
   dName: $('dName'), dStats: $('dStats'), onTrail: $('onTrail'), wx: $('wx'),
   dBadge: $('dBadge'), dType: $('dType'), dDirections: $('dDirections'),
   dChips: $('dChips'), dTrack: $('dTrack'), dDots: $('dDots'), dCount: $('dCount'), dElev: $('dElev'),
-  dConditions: $('dConditions'),
+  dConditions: $('dConditions'), dHead: $('dHead'),
   hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
   placeForm: $('placeForm'), placeInput: $('placeInput'), sheetHead: $('sheetHead'),
@@ -149,24 +149,22 @@ window.addEventListener('resize', () => { if (sheetPx != null) applySheet(snapNe
 applySheet(snapPoints()[1], false);
 
 // ---- Geolocation --------------------------------------------------------
-// Locate button: always recenters on your position; if you don't have a fix yet
-// it starts locating. On a trail, it toggles between "center on me" and framing
-// the whole trail, so a second tap brings the trail back into view.
-let locateShowsTrail = false;
-function centerOnMe() { if (mePos) { map.setView(mePos, 16); locateShowsTrail = false; } }
+// Locate button: ALWAYS recenters the map on your position. If there's no fix
+// yet it starts locating (the first fix centers). To bring the trail back into
+// view, tap the trail's header on the overlay (see below).
+function centerOnMe() { if (mePos) map.setView(mePos, 16); }
 function frameTrail(t) {
   const b = [];
   t.segments.forEach((seg) => seg.forEach((p) => b.push(p)));
   if (b.length) map.fitBounds(b, { paddingTopLeft: [30, 70], paddingBottomRight: [30, (sheetPx || 300) + 20] });
-  locateShowsTrail = true;
 }
 function onLocateClick() {
-  if (!mePos) { startLocating(); return; }        // no fix yet → start; first fix centers
-  if (selected && locateShowsTrail) centerOnMe();  // showing trail → jump to me
-  else if (selected) frameTrail(selected);         // showing me → back to the trail
-  else centerOnMe();
+  if (mePos) centerOnMe();
+  else startLocating();
 }
 els.locate.addEventListener('click', onLocateClick);
+// Tapping the trail header on the overlay re-frames the map to that trail.
+els.dHead.addEventListener('click', () => { if (selected) frameTrail(selected); });
 
 function startLocating() {
   if (!('geolocation' in navigator)) {
@@ -191,7 +189,6 @@ function onPos(pos) {
     }).addTo(map);
     meAccuracy = L.circle(mePos, { radius: accuracy, color: '#3b82f6', weight: 1, fillOpacity: 0.08 }).addTo(map);
     map.setView(mePos, 15);
-    locateShowsTrail = false;
     loadWeather(lat, lon);
     setStatus('Located. Now find trails near you.');
     if (autoFind) { autoFind = false; findTrails(); }
@@ -512,7 +509,6 @@ function openTrail(t) {
   els.dDirections.href = `https://www.google.com/maps/dir/?api=1&destination=${head[0]},${head[1]}&travelmode=driving`;
   els.dDownload.disabled = false;
   isSaved(t.id).then(setDownloadState);
-  locateShowsTrail = true; // trail is framed on open; first locate tap goes to "me"
   offTrailAlerting = false; // reset alert state for the new trail
 
   // Fetch elevation profile in the background (cached by trail id): fills the
