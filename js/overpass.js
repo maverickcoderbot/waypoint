@@ -53,6 +53,28 @@ function pathLength(points) {
   return m;
 }
 
+/* Shortest distance (metres) from a point to a polyline — perpendicular to the
+ * nearest segment, not just to the nearest vertex. Uses a local equirectangular
+ * projection (fine at trail scale) so "am I on this trail?" is accurate even when
+ * OSM vertices are spaced tens of metres apart. */
+function distanceToPath(pt, points) {
+  if (!points || !points.length) return Infinity;
+  if (points.length === 1) return haversine(pt, points[0]);
+  const mPerDegLat = 111320, mPerDegLon = 111320 * Math.cos((pt[0] * Math.PI) / 180);
+  const P = ([la, lo]) => [(lo - pt[1]) * mPerDegLon, (la - pt[0]) * mPerDegLat];
+  let best = Infinity;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = P(points[i]), b = P(points[i + 1]);
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const len2 = dx * dx + dy * dy;
+    let t = len2 ? -((a[0] * dx + a[1] * dy) / len2) : 0;
+    t = Math.max(0, Math.min(1, t));
+    const d = Math.hypot(a[0] + t * dx, a[1] + t * dy);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 /* OSM splits a trail into segments returned in arbitrary order/direction. Chain
  * them into one continuous path by greedily attaching the nearest remaining
  * segment endpoint (flipping/prepending as needed). This makes the elevation
@@ -124,9 +146,10 @@ function hasNatureSignal(tags, mode = 'walk') {
   // dirt forest road has no natural surface and often no nature word, so on the
   // cycle/vehicle tabs we accept the route class itself as the signal — that's
   // what surfaces lakeside multi-use loops and 4x4 tracks.
-  if (mode === 'cycle' && (tags.highway === 'cycleway'
+  const any = mode === 'any';
+  if ((mode === 'cycle' || any) && (tags.highway === 'cycleway'
     || tags.bicycle === 'designated' || tags.route === 'bicycle')) return true;
-  if (mode === 'vehicle' && (tags.highway === 'track' || tags.tracktype
+  if ((mode === 'vehicle' || any) && (tags.highway === 'track' || tags.tracktype
     || tags['4wd_only'] === 'yes' || tags.route === 'road')) return true;
   return false;
 }
@@ -201,6 +224,15 @@ const TRAIL_MODES = {
       `way["route"="road"]["name"]${a};`,
     ],
   },
+};
+// 'any' unions every mode's selectors — used by "am I on a trail?" detection,
+// which doesn't know yet whether you're walking, cycling or driving.
+TRAIL_MODES.any = {
+  key: 'any',
+  label: 'Any',
+  selectors: (a) => [...new Set(
+    ['walk', 'cycle', 'vehicle'].flatMap((m) => TRAIL_MODES[m].selectors(a))
+  )],
 };
 function resolveMode(mode) { return TRAIL_MODES[mode] || TRAIL_MODES.walk; }
 
@@ -441,5 +473,5 @@ function describeWeather(code) {
 
 // Let Node import these for testing; harmless in the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversine, pathLength, orderSegments, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos, fetchConditions, TRAIL_MODES, resolveMode };
+  module.exports = { haversine, distanceToPath, pathLength, orderSegments, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos, fetchConditions, TRAIL_MODES, resolveMode };
 }
