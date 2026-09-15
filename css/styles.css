@@ -176,7 +176,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 
 .detail{padding:6px 20px 24px;overflow-y:auto}
 .back{background:none;border:none;color:var(--green);font-weight:700;padding:8px 0;font-size:14px}
-.dhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 2px}
+.dhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 2px;cursor:pointer}
 .dhead h2{margin:0;font-size:23px;font-weight:800;letter-spacing:-.02em;color:var(--ink);
   line-height:1.15}
 .dhead .badge{flex:none;font-size:12.5px;padding:5px 12px}
@@ -212,6 +212,13 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 .statrow .st{flex:1;min-width:0}
 .statrow .v{font-size:16.5px;font-weight:800;color:var(--ink);letter-spacing:-.01em;line-height:1.15}
 .statrow .k{color:var(--muted);font-size:11.5px;font-weight:600;margin-top:2px}
+/* Trail conditions block */
+.conditions{background:var(--surface-2);border:1px solid var(--line);border-radius:16px;
+  padding:12px 14px;margin:0 0 14px}
+.cond-head{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.5px;margin-bottom:8px}
+.cond-row{font-size:14px;font-weight:600;color:var(--text);margin:4px 0}
+
 /* Elevation profile chart */
 .elev{margin:0 0 16px}
 .elev-head{display:flex;justify-content:space-between;font-size:11px;font-weight:700;
@@ -254,6 +261,17 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 .savedbar:active{background:#eef2ee}
 .ontrail{background:#e7f4ec;border:1px solid #bfe2ca;border-radius:16px;padding:14px;font-size:14px;color:var(--text)}
 .ontrail b{color:var(--green-deep)}
+.ontrail.alert{background:#fbe0dd;border-color:#e79a8f;color:#7a231b;animation:offpulse 1s ease-in-out 3}
+.ontrail.alert b{color:#9a2016}
+@keyframes offpulse{0%,100%{box-shadow:0 0 0 0 rgba(192,57,47,0)}50%{box-shadow:0 0 0 4px rgba(192,57,47,.18)}}
+/* Off-trail alerts toggle */
+.alerttoggle{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:10px;
+  padding:11px;border-radius:999px;font:inherit;font-weight:650;font-size:14px;cursor:pointer;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--muted);
+  transition:background .15s,color .15s,border-color .15s}
+.alerttoggle svg{flex:none}
+.alerttoggle:active{transform:translateY(1px)}
+.alerttoggle.on{background:#e7f4ec;border-color:#bfe2ca;color:var(--green-deep)}
 .empty{color:var(--muted);text-align:center;padding:30px 14px;font-size:14px}
 .spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--green);
   border-radius:50%;display:inline-block;vertical-align:-3px;animation:sp .8s linear infinite}

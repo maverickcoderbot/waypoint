@@ -86,12 +86,13 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
-      <div class="dhead">
+      <div class="dhead" id="dHead" title="Tap to show this trail on the map">
         <h2 id="dName">Trail</h2>
         <span class="badge" id="dBadge"></span>
       </div>
       <div class="dtype" id="dType"></div>
       <div class="statrow" id="dStats"></div>
+      <div class="conditions" id="dConditions" hidden></div>
       <div class="elev" id="dElev" hidden></div>
       <div class="chips" id="dChips"></div>
       <a class="dirbtn" id="dDirections" target="_blank" rel="noopener">
@@ -101,6 +102,10 @@
       <button class="dlbtn" id="dDownload" data-saved="0">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3v11m0 0l-4-4m4 4l4-4M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="lbl">Download for offline</span>
+      </button>
+      <button class="alerttoggle on" id="alertToggle" aria-pressed="true">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.7 21a2 2 0 01-3.4 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span class="lbl">Off-trail alerts: On</span>
       </button>
       <div class="ontrail" id="onTrail" hidden></div>
     </div>

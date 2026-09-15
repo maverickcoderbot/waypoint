@@ -29,10 +29,11 @@ const els = {
   dName: $('dName'), dStats: $('dStats'), onTrail: $('onTrail'), wx: $('wx'),
   dBadge: $('dBadge'), dType: $('dType'), dDirections: $('dDirections'),
   dChips: $('dChips'), dTrack: $('dTrack'), dDots: $('dDots'), dCount: $('dCount'), dElev: $('dElev'),
+  dConditions: $('dConditions'), dHead: $('dHead'),
   hero: $('hero'), heroForm: $('heroForm'), heroInput: $('heroInput'),
   heroSkip: $('heroSkip'), heroLocate: $('heroLocate'), heroBrowse: $('heroBrowse'),
   placeForm: $('placeForm'), placeInput: $('placeInput'), sheetHead: $('sheetHead'),
-  dDownload: $('dDownload'), savedBtn: $('savedBtn'),
+  dDownload: $('dDownload'), savedBtn: $('savedBtn'), alertToggle: $('alertToggle'),
 };
 
 let trails = [];      // last search results
@@ -148,24 +149,22 @@ window.addEventListener('resize', () => { if (sheetPx != null) applySheet(snapNe
 applySheet(snapPoints()[1], false);
 
 // ---- Geolocation --------------------------------------------------------
-// Locate button: always recenters on your position; if you don't have a fix yet
-// it starts locating. On a trail, it toggles between "center on me" and framing
-// the whole trail, so a second tap brings the trail back into view.
-let locateShowsTrail = false;
-function centerOnMe() { if (mePos) { map.setView(mePos, 16); locateShowsTrail = false; } }
+// Locate button: ALWAYS recenters the map on your position. If there's no fix
+// yet it starts locating (the first fix centers). To bring the trail back into
+// view, tap the trail's header on the overlay (see below).
+function centerOnMe() { if (mePos) map.setView(mePos, 16); }
 function frameTrail(t) {
   const b = [];
   t.segments.forEach((seg) => seg.forEach((p) => b.push(p)));
   if (b.length) map.fitBounds(b, { paddingTopLeft: [30, 70], paddingBottomRight: [30, (sheetPx || 300) + 20] });
-  locateShowsTrail = true;
 }
 function onLocateClick() {
-  if (!mePos) { startLocating(); return; }        // no fix yet → start; first fix centers
-  if (selected && locateShowsTrail) centerOnMe();  // showing trail → jump to me
-  else if (selected) frameTrail(selected);         // showing me → back to the trail
-  else centerOnMe();
+  if (mePos) centerOnMe();
+  else startLocating();
 }
 els.locate.addEventListener('click', onLocateClick);
+// Tapping the trail header on the overlay re-frames the map to that trail.
+els.dHead.addEventListener('click', () => { if (selected) frameTrail(selected); });
 
 function startLocating() {
   if (!('geolocation' in navigator)) {
@@ -190,7 +189,6 @@ function onPos(pos) {
     }).addTo(map);
     meAccuracy = L.circle(mePos, { radius: accuracy, color: '#3b82f6', weight: 1, fillOpacity: 0.08 }).addTo(map);
     map.setView(mePos, 15);
-    locateShowsTrail = false;
     loadWeather(lat, lon);
     setStatus('Located. Now find trails near you.');
     if (autoFind) { autoFind = false; findTrails(); }
@@ -282,15 +280,14 @@ function renderList() {
     return;
   }
 
-  // Draw every trail faintly on the map…
-  const bounds = [];
+  // Draw every trail faintly on the map, but leave the camera where it is: the
+  // list view never moves the map (only opening a single trail, tapping its
+  // header, or the locate button do). Prevents the jump when returning to the list.
   trails.forEach((t) => {
     t.segments.forEach((seg) => {
       L.polyline(seg, { color: '#5ad07f', weight: 2, opacity: 0.5 }).addTo(trailLayer);
-      seg.forEach((p) => bounds.push(p));
     });
   });
-  if (bounds.length) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
 
   // …and list them in the sheet.
   const cls = { Easy: 'easy', Moderate: 'mod', Hard: 'hard' };
@@ -447,11 +444,36 @@ function elevScrubEnd() {
 }
 function removeElevMarker() { if (elevMarker) { map.removeLayer(elevMarker); elevMarker = null; } }
 
+// Estimate ground condition from recent rainfall + temperature.
+function groundCondition(recentMm, tempF) {
+  if (tempF != null && tempF <= 32) return ['❄️', 'May be icy or frozen'];
+  if (recentMm > 15) return ['💧', 'Wet — heavy recent rain, expect mud'];
+  if (recentMm > 4) return ['💧', 'Some recent rain, may be muddy'];
+  return ['🌤️', 'Likely dry underfoot'];
+}
+// Render the Conditions block: live weather at the trail, ground estimate, terrain.
+function renderConditions(c, t) {
+  if (!c) { els.dConditions.hidden = true; return; }
+  const [label, emoji] = describeWeather(c.code || 0);
+  const wx = c.tempF != null
+    ? `${emoji} ${c.tempF}°F · ${label}${c.rainProb != null ? ` · ${c.rainProb}% rain today` : ''}`
+    : 'Weather unavailable';
+  const [gEmoji, gTxt] = groundCondition(c.recentPrecipMm, c.tempF);
+  const surf = t.tags && t.tags.surface ? ` (${esc(String(t.tags.surface).replace(/_/g, ' '))})` : '';
+  els.dConditions.innerHTML = `
+    <div class="cond-head">Conditions</div>
+    <div class="cond-row">${wx}</div>
+    <div class="cond-row">${gEmoji} ${gTxt}</div>
+    <div class="cond-row">🥾 ${esc(trailType(t.tags))}${surf}</div>`;
+  els.dConditions.hidden = false;
+}
+
 function openTrail(t) {
   selected = t;
   els.list.hidden = true;
   els.detail.hidden = false;
   els.dElev.hidden = true; // clear previous trail's chart until this one loads
+  els.dConditions.hidden = true;
   removeElevMarker();
   els.sheetHead.hidden = true; // hide search/find while reading a trail (declutter)
   setSheet('peek'); // mid height so the highlighted trail stays visible on the map
@@ -461,6 +483,9 @@ function openTrail(t) {
   // Real scenic photos (Wikimedia) near the trail's midpoint; swipeable gallery.
   const mid = t.points[Math.floor(t.points.length / 2)];
   const forPhoto = t;
+  // Trail conditions (weather + recent rain → mud estimate + terrain).
+  cached(`cond:${mid[0].toFixed(2)},${mid[1].toFixed(2)}`, TTL.cond, () => fetchConditions(mid[0], mid[1]))
+    .then((c) => { if (selected === forPhoto) renderConditions(c, t); }).catch(() => {});
   cached(`photos:${mid[0].toFixed(3)},${mid[1].toFixed(3)}`, TTL.photo,
     () => fetchTrailPhotos(mid[0], mid[1], 6)).then((photos) => {
     if (selected === forPhoto && photos && photos.length) renderGallery(t, photos);
@@ -483,7 +508,7 @@ function openTrail(t) {
   els.dDirections.href = `https://www.google.com/maps/dir/?api=1&destination=${head[0]},${head[1]}&travelmode=driving`;
   els.dDownload.disabled = false;
   isSaved(t.id).then(setDownloadState);
-  locateShowsTrail = true; // trail is framed on open; first locate tap goes to "me"
+  offTrailAlerting = false; // reset alert state for the new trail
 
   // Fetch elevation profile in the background (cached by trail id): fills the
   // gain stat and draws the elevation chart. Leaves "—" / no chart if it fails.
@@ -588,8 +613,19 @@ async function showSaved() {
 els.savedBtn.addEventListener('click', showSaved);
 refreshSavedBtn();
 
-/* Snap the user's GPS to the nearest point on the selected trail, and work
- * out how far off-trail they are and how far along the route. */
+// Off-trail alerting. Hysteresis: alert once you're past OFF_THRESHOLD, clear
+// once you're back within ON_THRESHOLD, so it doesn't buzz on the boundary.
+const OFF_THRESHOLD = 50, ON_THRESHOLD = 30;
+let offTrailAlerting = false;
+let offTrailAlertsOn = true;
+function triggerOffTrailAlert() {
+  // Haptic buzz (Android; iOS Safari ignores it). Fully local — works offline.
+  try { navigator.vibrate && navigator.vibrate([300, 120, 300, 120, 300]); } catch {}
+}
+
+/* Snap the user's GPS to the nearest point on the selected trail, work out how
+ * far off-trail they are and how far along the route, and fire an off-trail
+ * alert when they stray (no network needed). */
 function updateOnTrail() {
   if (!selected) return;
   if (!mePos) { els.onTrail.hidden = true; return; }
@@ -604,12 +640,35 @@ function updateOnTrail() {
   for (let i = 0; i < best.idx; i++) along += haversine(flat[i], flat[i + 1]);
   const pct = Math.round((along / selected.meters) * 100);
   const off = Math.round(best.d);
-  const onIt = off <= 30;
+  const onIt = off <= ON_THRESHOLD;
+
+  if (offTrailAlertsOn && off > OFF_THRESHOLD && !offTrailAlerting) {
+    offTrailAlerting = true;
+    triggerOffTrailAlert();
+  } else if (off <= ON_THRESHOLD && offTrailAlerting) {
+    offTrailAlerting = false; // back on track
+  }
+
   els.onTrail.hidden = false;
-  els.onTrail.innerHTML = onIt
-    ? `<b>You're on the trail.</b> About <b>${pct}%</b> along · ${(along/1000).toFixed(2)} km in, ${((selected.meters-along)/1000).toFixed(2)} km to go.`
-    : `You're <b>${off} m</b> from <b>${esc(selected.name)}</b> (nearest point ~${pct}% along). Head toward the red line.`;
+  els.onTrail.className = 'ontrail' + (offTrailAlerting ? ' alert' : '');
+  if (onIt) {
+    els.onTrail.innerHTML = `<b>You're on the trail.</b> About <b>${pct}%</b> along · ${(along / 1000).toFixed(2)} km in, ${((selected.meters - along) / 1000).toFixed(2)} km to go.`;
+  } else if (offTrailAlerting) {
+    els.onTrail.innerHTML = `⚠️ <b>Off trail — ${off} m away.</b> Head back toward the red line.`;
+  } else {
+    els.onTrail.innerHTML = `You're <b>${off} m</b> from <b>${esc(selected.name)}</b> (nearest point ~${pct}% along).`;
+  }
 }
+
+// Toggle off-trail alerts on/off.
+els.alertToggle.addEventListener('click', () => {
+  offTrailAlertsOn = !offTrailAlertsOn;
+  els.alertToggle.classList.toggle('on', offTrailAlertsOn);
+  els.alertToggle.setAttribute('aria-pressed', offTrailAlertsOn ? 'true' : 'false');
+  els.alertToggle.querySelector('.lbl').textContent = `Off-trail alerts: ${offTrailAlertsOn ? 'On' : 'Off'}`;
+  if (!offTrailAlertsOn) offTrailAlerting = false;
+  if (selected) updateOnTrail();
+});
 
 // ---- Weather badge ------------------------------------------------------
 async function loadWeather(lat, lon) {
