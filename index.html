@@ -70,6 +70,11 @@
         <input id="placeInput" type="search" enterkeyhint="search" placeholder="Search a zip code or place" aria-label="Search a zip code or place" />
         <button type="submit">Go</button>
       </form>
+      <div class="modeseg" id="modeSeg" role="tablist" aria-label="Trail type">
+        <button class="mode on" type="button" data-mode="walk" role="tab" aria-selected="true">🥾 Walk</button>
+        <button class="mode" type="button" data-mode="cycle" role="tab" aria-selected="false">🚲 Cycle</button>
+        <button class="mode" type="button" data-mode="vehicle" role="tab" aria-selected="false">🚙 Vehicle</button>
+      </div>
       <button id="findBtn" class="primary"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm0-6a1 1 0 011 1v1.06A8 8 0 0118.94 11H20a1 1 0 110 2h-1.06A8 8 0 0113 18.94V20a1 1 0 11-2 0v-1.06A8 8 0 015.06 13H4a1 1 0 110-2h1.06A8 8 0 0111 5.06V4a1 1 0 011-1z" fill="currentColor"/></svg>Find trails near here</button>
       <button class="savedbar" id="savedBtn" hidden></button>
       <div class="status" id="status">Search a place above, or tap the crosshair to use your location.</div>

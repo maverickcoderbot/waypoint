@@ -141,6 +141,15 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
   transition:transform .08s,background .15s}
 .searchbar button:active{transform:scale(.96);background:var(--green-deep)}
 
+/* Travel-mode segmented control (Walk / Cycle / Vehicle) */
+.modeseg{display:flex;gap:4px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:999px;padding:4px;margin-bottom:10px}
+.modeseg .mode{flex:1;appearance:none;border:0;cursor:pointer;font:inherit;font-weight:600;
+  font-size:13px;color:var(--muted);background:none;padding:8px 6px;border-radius:999px;
+  white-space:nowrap;transition:background .15s,color .15s,box-shadow .15s}
+.modeseg .mode.on{color:var(--green-deep);background:var(--surface);box-shadow:var(--shadow-md)}
+.modeseg .mode:active{transform:scale(.97)}
+
 /* Primary find button styled as a search pill */
 .primary,.back{font:inherit;cursor:pointer}
 .primary{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;
