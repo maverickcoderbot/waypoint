@@ -280,15 +280,14 @@ function renderList() {
     return;
   }
 
-  // Draw every trail faintly on the map…
-  const bounds = [];
+  // Draw every trail faintly on the map, but leave the camera where it is: the
+  // list view never moves the map (only opening a single trail, tapping its
+  // header, or the locate button do). Prevents the jump when returning to the list.
   trails.forEach((t) => {
     t.segments.forEach((seg) => {
       L.polyline(seg, { color: '#5ad07f', weight: 2, opacity: 0.5 }).addTo(trailLayer);
-      seg.forEach((p) => bounds.push(p));
     });
   });
-  if (bounds.length) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
 
   // …and list them in the sheet.
   const cls = { Easy: 'easy', Moderate: 'mod', Hard: 'hard' };
