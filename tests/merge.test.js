@@ -2,7 +2,7 @@
 // Run: node tests/merge.test.js   (exits non-zero on failure)
 const assert = require('assert');
 const {
-  fetchTrailsNear, clusterWays, waysConnected, nameComponents, clusterName,
+  fetchTrailsNear, clusterWays, waysConnected, nameComponents, clusterName, maxPointGap,
 } = require('../js/overpass.js');
 
 let passed = 0;
@@ -72,6 +72,32 @@ const fakeFetch = (elements) => async () => ({ ok: true, json: async () => ({ el
       fakeFetch([arcA, arcB, arcC, crossing]), 150, 'walk');
     const names = trails.map((t) => t.name).sort();
     assert.deepStrictEqual(names, ['Lakeview Loop Trail', 'River Valley Connector']);
+  });
+
+  await test('maxPointGap finds the largest jump between consecutive points', () => {
+    assert.ok(maxPointGap([[38.70, -90.47], [38.701, -90.47]]) < 200);
+    assert.ok(maxPointGap([[38.70, -90.47], [38.90, -90.10]]) > 20000);
+  });
+
+  await test('far-apart same-name paths do NOT merge into one broken trail', async () => {
+    // Two unrelated "Nature Trail" paths ~30 km apart (the generic-name problem).
+    const nt1 = way(10, 'Nature Trail', [[38.79, -90.10], [38.791, -90.10]]);
+    const nt2 = way(11, 'Nature Trail', [[38.60, -90.40], [38.601, -90.40]]);
+    const trails = await fetchTrailsNear(38.70, -90.25, 60000,
+      fakeFetch([nt1, nt2]), 150, 'walk');
+    assert.strictEqual(trails.length, 2, 'stay as two separate local trails, not one');
+    for (const t of trails) {
+      assert.ok(maxPointGap(t.points) < 1500, 'no giant internal jump (not broken)');
+    }
+  });
+
+  await test('control: same-name pieces that DO connect still merge into one', async () => {
+    const p1 = way(20, 'Riverside Trail', [[38.70, -90.47], [38.702, -90.47]]);
+    const p2 = way(21, 'Riverside Trail', [[38.702, -90.47], [38.704, -90.47]]);
+    const trails = await fetchTrailsNear(38.70, -90.47, 5000,
+      fakeFetch([p1, p2]), 150, 'walk');
+    assert.strictEqual(trails.length, 1, 'connected same-name segments merge');
+    assert.ok(maxPointGap(trails[0].points) < 1500);
   });
 
   console.log(`\n${passed} passed`);
