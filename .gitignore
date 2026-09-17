@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
 *.log
+
+# proxy POC runtime cache
+poc/overpass-proxy/.cache/
