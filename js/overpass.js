@@ -236,6 +236,68 @@ TRAIL_MODES.any = {
 };
 function resolveMode(mode) { return TRAIL_MODES[mode] || TRAIL_MODES.walk; }
 
+/* Split an OSM trail name into its concurrent components. Where two named trails
+ * run along the same path, mappers tag the arc "Trail A / Trail B"; each side is
+ * a component we can match on. */
+function nameComponents(name) {
+  return String(name).split('/').map((s) => s.trim()).filter(Boolean);
+}
+const normComp = (s) => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
+
+/* Do two ways physically connect? True if an endpoint of one lands within `tol`
+ * metres of any vertex of the other — covers end-to-end joins and T-junctions
+ * where OSM splits a trail at an intersection. */
+function waysConnected(a, b, tol = 40) {
+  const ends = (w) => [w.pts[0], w.pts[w.pts.length - 1]];
+  const nearAny = (pt, pts) => pts.some((p) => haversine(pt, p) <= tol);
+  return ends(a).some((e) => nearAny(e, b.pts)) || ends(b).some((e) => nearAny(e, a.pts));
+}
+
+/* Cluster ways into trails with union-find. Join two ways when they carry the
+ * exact same name (OSM splits one trail into many same-named ways) OR they share
+ * a name component AND physically touch (concurrent trails tagged "A / B", "A / C",
+ * "A" that form one continuous route). The name-component gate keeps unrelated
+ * trails that merely cross from being fused together. */
+function clusterWays(ways, tol = 40) {
+  const parent = ways.map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const union = (i, j) => { const ri = find(i), rj = find(j); if (ri !== rj) parent[ri] = rj; };
+  const norm = ways.map((w) => ({ name: normComp(w.name), comps: new Set(w.comps.map(normComp)) }));
+  for (let i = 0; i < ways.length; i++) {
+    for (let j = i + 1; j < ways.length; j++) {
+      const sameName = norm[i].name === norm[j].name;
+      const shareComp = [...norm[i].comps].some((c) => norm[j].comps.has(c));
+      // shareComp short-circuits the pricier geometry check; most pairs share nothing.
+      if (sameName || (shareComp && waysConnected(ways[i], ways[j], tol))) union(i, j);
+    }
+  }
+  const groups = new Map();
+  for (let i = 0; i < ways.length; i++) {
+    const r = find(i);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(ways[i]);
+  }
+  return [...groups.values()];
+}
+
+/* Display name + representative tags for a merged cluster: the name component
+ * shared by the most ways (the through-trail, e.g. "Lakeview Loop Trail"), or the
+ * longest way's full name if nothing is shared. Tags come from the longest member,
+ * which is most likely to carry surface/sac_scale hints. */
+function clusterName(ways) {
+  const longest = ways.reduce((m, w) => (pathLength(w.pts) > pathLength(m.pts) ? w : m), ways[0]);
+  if (ways.length === 1) return { name: ways[0].name, tags: ways[0].tags };
+  const freq = new Map(), label = new Map();
+  for (const w of ways) for (const c of w.comps) {
+    const k = normComp(c);
+    freq.set(k, (freq.get(k) || 0) + 1);
+    if (!label.has(k)) label.set(k, c);
+  }
+  let bestK = null, bestN = 0;
+  for (const [k, n] of freq) if (n > bestN) { bestN = n; bestK = k; }
+  return { name: bestN > 1 ? label.get(bestK) : longest.name, tags: longest.tags };
+}
+
 /*
  * Fetch named trails within `radius` metres of [lat, lon].
  * Returns [{ id, name, points:[[lat,lon]...], km, difficulty, tags }] sorted by distance-ish.
@@ -275,31 +337,36 @@ async function fetchTrailsNear(lat, lon, radius = 20000, fetchImpl = fetch, maxR
   }
   if (!data) throw lastErr || new Error('Overpass unreachable');
 
-  // Merge ways that share a name into one trail (OSM splits long trails into segments).
-  const byName = new Map();
+  // Group OSM ways into trails (see clusterWays): same-name ways merge as before,
+  // and physically-connected arcs that share a name component get joined too — so
+  // one loop that OSM tags as "Lakeview / Meadows", "Lakeview / Mallard", "Lakeview"
+  // shows up as a single trail instead of three.
+  const ways = [];
   for (const el of data.elements) {
     if (!el.geometry || !el.tags || !el.tags.name) continue;
     if (!isNatureTrail(el.tags, mode)) continue; // scenic/nature only, per travel mode
     const pts = el.geometry.map((g) => [g.lat, g.lon]);
-    const key = el.tags.name;
-    if (!byName.has(key)) byName.set(key, { id: el.id, name: key, segments: [], tags: el.tags });
-    byName.get(key).segments.push(pts);
+    if (pts.length < 2) continue;
+    ways.push({ id: el.id, name: el.tags.name, comps: nameComponents(el.tags.name), pts, tags: el.tags });
   }
 
   const trails = [];
-  for (const t of byName.values()) {
-    const points = orderSegments(t.segments); // continuous route order, not raw concat
+  for (const ws of clusterWays(ways)) {
+    const segments = ws.map((w) => w.pts);
+    const points = orderSegments(segments); // continuous route order, not raw concat
     if (points.length < 2) continue;
-    const meters = t.segments.reduce((s, seg) => s + pathLength(seg), 0);
+    const meters = segments.reduce((s, seg) => s + pathLength(seg), 0);
     if (meters < 100) continue; // skip degenerate stubs (e.g. a 30 m named fragment)
     const km = meters / 1000;
+    const rep = clusterName(ws); // display name + representative tags for the merged trail
     // approx distance from the user to the trail's nearest sampled point
     let near = Infinity;
     for (const p of points) near = Math.min(near, haversine([lat, lon], p));
     trails.push({
-      id: t.id, name: t.name, points, segments: t.segments,
-      km: +km.toFixed(2), meters, difficulty: difficulty(km, t.tags),
-      distToUserKm: +(near / 1000).toFixed(2), tags: t.tags,
+      id: ws.reduce((m, w) => Math.min(m, w.id), Infinity), // stable across refetches
+      name: rep.name, points, segments,
+      km: +km.toFixed(2), meters, difficulty: difficulty(km, rep.tags),
+      distToUserKm: +(near / 1000).toFixed(2), tags: rep.tags,
     });
   }
   // Nearest first; cap the list so a dense metro doesn't flood the map/list.
@@ -473,5 +540,5 @@ function describeWeather(code) {
 
 // Let Node import these for testing; harmless in the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversine, distanceToPath, pathLength, orderSegments, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos, fetchConditions, TRAIL_MODES, resolveMode };
+  module.exports = { haversine, distanceToPath, pathLength, orderSegments, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos, fetchConditions, TRAIL_MODES, resolveMode, nameComponents, waysConnected, clusterWays, clusterName };
 }
