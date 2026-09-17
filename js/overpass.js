@@ -244,6 +244,22 @@ function nameComponents(name) {
 }
 const normComp = (s) => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
 
+// A route with a bigger jump than this between consecutive points isn't one
+// trail — its parts sit too far apart to walk between. Used to drop "broken" merges.
+const BROKEN_GAP_M = 1500;
+
+/* Largest gap (metres) between consecutive points of an ordered route. Real trail
+ * segments meet at shared nodes so this stays small; a stitched-together group of
+ * far-apart same-named paths shows a huge jump here. */
+function maxPointGap(points) {
+  let max = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const d = haversine(points[i], points[i + 1]);
+    if (d > max) max = d;
+  }
+  return max;
+}
+
 /* Do two ways physically connect? True if an endpoint of one lands within `tol`
  * metres of any vertex of the other — covers end-to-end joins and T-junctions
  * where OSM splits a trail at an intersection. */
@@ -253,22 +269,23 @@ function waysConnected(a, b, tol = 40) {
   return ends(a).some((e) => nearAny(e, b.pts)) || ends(b).some((e) => nearAny(e, a.pts));
 }
 
-/* Cluster ways into trails with union-find. Join two ways when they carry the
- * exact same name (OSM splits one trail into many same-named ways) OR they share
- * a name component AND physically touch (concurrent trails tagged "A / B", "A / C",
- * "A" that form one continuous route). The name-component gate keeps unrelated
- * trails that merely cross from being fused together. */
+/* Cluster ways into trails with union-find. Join two ways when they share a name
+ * component (exact same name, or a piece of a concurrent "A / B" tag) AND they
+ * physically touch. Requiring physical contact is what keeps generic names like
+ * "Nature Trail" — which OSM reuses for dozens of unrelated paths across a metro —
+ * from being fused into one trail whose parts are miles apart (looks broken, and
+ * the map zooms out to the whole region). Segments of one real trail share nodes,
+ * so they still merge; scattered same-named paths stay separate. */
 function clusterWays(ways, tol = 40) {
   const parent = ways.map((_, i) => i);
   const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
   const union = (i, j) => { const ri = find(i), rj = find(j); if (ri !== rj) parent[ri] = rj; };
-  const norm = ways.map((w) => ({ name: normComp(w.name), comps: new Set(w.comps.map(normComp)) }));
+  const norm = ways.map((w) => ({ comps: new Set(w.comps.map(normComp)) }));
   for (let i = 0; i < ways.length; i++) {
     for (let j = i + 1; j < ways.length; j++) {
-      const sameName = norm[i].name === norm[j].name;
       const shareComp = [...norm[i].comps].some((c) => norm[j].comps.has(c));
       // shareComp short-circuits the pricier geometry check; most pairs share nothing.
-      if (sameName || (shareComp && waysConnected(ways[i], ways[j], tol))) union(i, j);
+      if (shareComp && waysConnected(ways[i], ways[j], tol)) union(i, j);
     }
   }
   const groups = new Map();
@@ -357,6 +374,10 @@ async function fetchTrailsNear(lat, lon, radius = 20000, fetchImpl = fetch, maxR
     if (points.length < 2) continue;
     const meters = segments.reduce((s, seg) => s + pathLength(seg), 0);
     if (meters < 100) continue; // skip degenerate stubs (e.g. a 30 m named fragment)
+    // Safety net: if the ordered route still has to jump a big gap between parts,
+    // the pieces don't really form one trail — drop it instead of drawing a broken
+    // line across the map. (Connected segments share nodes, so real gaps are tiny.)
+    if (maxPointGap(points) > BROKEN_GAP_M) continue;
     const km = meters / 1000;
     const rep = clusterName(ws); // display name + representative tags for the merged trail
     // approx distance from the user to the trail's nearest sampled point
@@ -540,5 +561,5 @@ function describeWeather(code) {
 
 // Let Node import these for testing; harmless in the browser.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { haversine, distanceToPath, pathLength, orderSegments, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos, fetchConditions, TRAIL_MODES, resolveMode, nameComponents, waysConnected, clusterWays, clusterName };
+  module.exports = { haversine, distanceToPath, pathLength, orderSegments, difficulty, fetchTrailsNear, fetchWeather, describeWeather, isNatureTrail, hasNatureSignal, isIndustrialOrUrban, geocodePlace, geocodeNominatim, geocodeOpenMeteo, pickNearest, fetchElevationProfile, fetchTrailPhotos, fetchConditions, TRAIL_MODES, resolveMode, nameComponents, waysConnected, clusterWays, clusterName, maxPointGap };
 }
