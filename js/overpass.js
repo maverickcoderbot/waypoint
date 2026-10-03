@@ -20,6 +20,13 @@ const OVERPASS_ENDPOINTS = [
 ];
 const OVERPASS_TIMEOUT_MS = 32000; // give up on a single mirror after 32s
 
+/* Our backend proxy base URL, or '' for "direct mode" (call public services
+ * straight from the browser). Set via js/config.js. Guarded so this file still
+ * loads as a plain Node module for the tests, where there is no `window`. */
+function apiBase() {
+  return (typeof window !== 'undefined' && window.WAYPOINT_API_BASE) || '';
+}
+
 /* fetch() with a hard timeout via AbortController — prevents a stalled mirror
  * from hanging the request (and the spinner) forever. */
 async function fetchWithTimeout(fetchImpl, url, opts = {}, ms = OVERPASS_TIMEOUT_MS) {
@@ -332,17 +339,24 @@ async function fetchTrailsNear(lat, lon, radius = 20000, fetchImpl = fetch, maxR
     );
     out geom;`;
 
-  // Two passes over the mirror list: public Overpass instances frequently 429 /
+  // In backend mode there's a single endpoint (our proxy handles mirror fallback
+  // and caching server-side) and the body is raw QL as text/plain. In direct mode
+  // we hit the public mirrors ourselves, form-encoded as Overpass expects.
+  const base = apiBase();
+  const endpoints = base ? [base + '/api/overpass'] : OVERPASS_ENDPOINTS;
+  const init = base
+    ? { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: query }
+    : { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + encodeURIComponent(query) };
+
+  // Two passes over the endpoint list: public Overpass instances frequently 429 /
   // 504 under load, and a second attempt often lands on one that has recovered.
+  // (In backend mode the single endpoint is simply retried once.)
   let data = null, lastErr = null;
   for (let attempt = 0; attempt < 2 && !data; attempt++) {
-    for (const ep of OVERPASS_ENDPOINTS) {
+    for (const ep of endpoints) {
       try {
-        const res = await fetchWithTimeout(fetchImpl, ep, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: 'data=' + encodeURIComponent(query),
-        });
+        const res = await fetchWithTimeout(fetchImpl, ep, init);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         data = await res.json();
         break;
@@ -418,9 +432,26 @@ function pickNearest(cands, bias) {
 async function geocodePlace(q, bias = null, fetchImpl = fetch) {
   const query = String(q || '').trim();
   if (!query) return null;
+  // Backend mode: one call — the proxy runs the Nominatim->Open-Meteo fallback
+  // server-side and returns candidates already sorted nearest-first by bias.
+  if (apiBase()) return geocodeBackend(query, bias, fetchImpl).catch(() => null);
   const viaNominatim = await geocodeNominatim(query, bias, fetchImpl).catch(() => null);
   if (viaNominatim) return viaNominatim;
   return geocodeOpenMeteo(query, bias, fetchImpl).catch(() => null);
+}
+
+// Backend geocode proxy -> normalized [{ name, lat, lon }], nearest-first.
+async function geocodeBackend(query, bias = null, fetchImpl = fetch) {
+  let url = apiBase() + '/api/geocode?q=' + encodeURIComponent(query);
+  if (bias && Number.isFinite(bias.lat) && Number.isFinite(bias.lon)) {
+    url += `&lat=${bias.lat}&lon=${bias.lon}`;
+  }
+  const res = await fetchWithTimeout(fetchImpl, url, { headers: { Accept: 'application/json' } }, 12000);
+  if (!res.ok) throw new Error('geocode HTTP ' + res.status);
+  const arr = await res.json();
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const r = arr[0]; // backend already applied the proximity sort
+  return { lat: +r.lat, lon: +r.lon, label: String(r.name || query).split(',').slice(0, 3).join(',').trim() };
 }
 
 // OpenStreetMap Nominatim. Browsers send a Referer, which its policy accepts.
@@ -469,7 +500,9 @@ async function fetchElevationProfile(points, fetchImpl = fetch) {
   for (let i = 0; i < N; i++) samp.push(points[Math.round(i * step)]);
   const lats = samp.map((p) => p[0].toFixed(5)).join(',');
   const lons = samp.map((p) => p[1].toFixed(5)).join(',');
-  const url = `https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lons}`;
+  const base = apiBase();
+  const url = (base ? base + '/api/elevation' : 'https://api.open-meteo.com/v1/elevation')
+    + `?latitude=${lats}&longitude=${lons}`;
   const res = await fetchWithTimeout(fetchImpl, url, {}, 12000);
   if (!res.ok) throw new Error('elevation HTTP ' + res.status);
   const raw = (await res.json()).elevation;
